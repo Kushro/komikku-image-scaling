@@ -165,11 +165,11 @@ jobs:
         run: |
           set -e
 
-          mv app/build/outputs/apk/release/app-universal-release.apk KomikkUP-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
-          mv app/build/outputs/apk/release/app-arm64-v8a-release.apk KomikkUP-arm64-v8a-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
-          mv app/build/outputs/apk/release/app-armeabi-v7a-release.apk KomikkUP-armeabi-v7a-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
-          mv app/build/outputs/apk/release/app-x86-release.apk KomikkUP-x86-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
-          mv app/build/outputs/apk/release/app-x86_64-release.apk KomikkUP-x86_64-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
+          mv app/build/outputs/apk/release/app-universal-release-unsigned.apk KomikkUP-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
+          mv app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk KomikkUP-arm64-v8a-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
+          mv app/build/outputs/apk/release/app-armeabi-v7a-release-unsigned.apk KomikkUP-armeabi-v7a-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
+          mv app/build/outputs/apk/release/app-x86-release-unsigned.apk KomikkUP-x86-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
+          mv app/build/outputs/apk/release/app-x86_64-release-unsigned.apk KomikkUP-x86_64-${{ needs.prepare-build.outputs.VERSION_TAG }}.apk
 
       - name: Create release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
