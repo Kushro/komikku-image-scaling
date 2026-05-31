@@ -35,8 +35,14 @@ import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.EASE_OUT_QU
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE
 import com.github.chrisbanes.photoview.PhotoView
 import eu.kanade.domain.base.BasePreferences
+import eu.kanade.tachiyomi.data.coil.alreadyUpscaled
+import eu.kanade.tachiyomi.data.coil.chapterId
 import eu.kanade.tachiyomi.data.coil.cropBorders
 import eu.kanade.tachiyomi.data.coil.customDecoder
+import eu.kanade.tachiyomi.data.coil.enhanced
+import eu.kanade.tachiyomi.data.coil.mangaId
+import eu.kanade.tachiyomi.data.coil.pageIndex
+import eu.kanade.tachiyomi.data.coil.pageVariant
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences.LandscapeZoomScaleType
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonSubsamplingImageView
 import eu.kanade.tachiyomi.util.system.animatorDurationScale
@@ -345,7 +351,9 @@ open class ReaderPageImageView @JvmOverloads constructor(
                 isVisible = true
             }
             is BufferedSource -> {
-                if (!isWebtoon || alwaysDecodeLongStripWithSSIV) {
+                // KMK --> When enhancement is enabled, route through Coil so TachiyomiImageDecoder can process
+                if (!config.enhanced && (!isWebtoon || alwaysDecodeLongStripWithSSIV)) {
+                    // KMK <--
                     setHardwareConfig(ImageUtil.canUseHardwareBitmap(data))
                     setImage(ImageSource.inputStream(data.inputStream()))
                     isVisible = true
@@ -372,6 +380,14 @@ open class ReaderPageImageView @JvmOverloads constructor(
                     .precision(Precision.INEXACT)
                     .cropBorders(config.cropBorders)
                     .customDecoder(true)
+                    // KMK -->
+                    .enhanced(config.enhanced)
+                    .alreadyUpscaled(config.alreadyUpscaled)
+                    .mangaId(config.mangaId)
+                    .chapterId(config.chapterId)
+                    .pageIndex(config.pageIndex)
+                    .pageVariant(config.pageVariant)
+                    // KMK <--
                     .crossfade(false)
                     .build()
                     .let(context.imageLoader::enqueue)
@@ -472,6 +488,12 @@ open class ReaderPageImageView @JvmOverloads constructor(
         val disableZoomIn: Boolean = false,
         val doubleTapZoom: Boolean = true,
         val landscapeZoomScaleType: LandscapeZoomScaleType = LandscapeZoomScaleType.FIT,
+        val enhanced: Boolean = false,
+        val mangaId: Long = -1L,
+        val chapterId: Long = -1L,
+        val pageIndex: Int = -1,
+        val pageVariant: String = "",
+        val alreadyUpscaled: Boolean = false,
         // KMK <--
     )
 

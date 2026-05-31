@@ -238,4 +238,33 @@
     <string name="pref_discord_show_download_button_summary">Displays a button to download the app</string>
     <string name="pref_discord_show_discord_button">Show Discord Button</string>
     <string name="pref_discord_show_discord_button_summary">Displays a button to join the Discord server</string>
+    <!-- Image Enhancement -->
+    <string name="reader_image_enhancement">Image enhancement</string>
+    <string name="reader_image_enhancement_toast">Image enhancement %1$s</string>
+    <string name="reader_model">Model</string>
+    <string name="reader_denoise_level">Denoise level</string>
+    <string name="reader_scale_factor">Scale factor</string>
+    <string name="reader_scale_fixed_2x">2x (fixed)</string>
+    <string name="reader_preload_pages">Preload pages</string>
+    <string name="reader_preload_pages_value">%1$d pages</string>
+    <string name="reader_gpu_performance_mode">GPU performance mode</string>
+    <string name="reader_gpu_performance_high">Performance 90%</string>
+    <string name="reader_gpu_performance_balanced">Balanced 50%</string>
+    <string name="reader_gpu_performance_power_saving">Power saving 30%</string>
+    <string name="reader_target_resolution">Target resolution</string>
+    <string name="reader_target_width">Target width</string>
+    <string name="reader_target_height">Target height</string>
+    <string name="reader_prescale_to_target">Prescale input image to target resolution</string>
+    <string name="reader_show_processing_status">Show processing status in bottom-left corner</string>
+    <string name="reader_none">None</string>
+    <string name="reader_conservative">Conservative</string>
+    <string name="reader_status_raw">RAW</string>
+    <string name="reader_status_processed">PROCESSED</string>
+    <string name="reader_status_processing">PROCESSING</string>
+    <string name="reader_status_queued">QUEUED</string>
+    <string name="reader_status_finishing">FINISHING...</string>
+    <string name="reader_status_enhancing">ENHANCING</string>
+    <string name="reader_status_enhancing_progress">ENHANCING... %1$d%%</string>
+    <string name="reader_enhance_on_download">Enhance on download</string>
+    <string name="reader_enhance_on_download_summary">Upscale images during download so they don\'t need processing when reading</string>
 </resources>

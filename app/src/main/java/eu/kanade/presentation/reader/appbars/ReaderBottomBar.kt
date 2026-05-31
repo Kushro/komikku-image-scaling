@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import kotlinx.collections.immutable.ImmutableSet
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.kmk.KMR
 import tachiyomi.i18n.sy.SYMR
 import tachiyomi.presentation.core.i18n.stringResource
 
@@ -36,6 +37,10 @@ fun ReaderBottomBar(
     onClickOrientation: () -> Unit,
     cropEnabled: Boolean,
     onClickCropBorder: () -> Unit,
+    // KMK -->
+    imageEnhancementEnabled: Boolean,
+    onClickImageEnhancement: () -> Unit,
+    // KMK <--
     onClickSettings: () -> Unit,
     // SY -->
     currentReadingMode: ReadingMode,
@@ -150,6 +155,16 @@ fun ReaderBottomBar(
                 )
             }
         }
+
+        // KMK --> Image enhancement toggle
+        IconButton(onClick = onClickImageEnhancement) {
+            Icon(
+                painter = painterResource(R.drawable.ic_photo_24dp),
+                contentDescription = stringResource(KMR.strings.reader_image_enhancement),
+                tint = if (imageEnhancementEnabled) iconColor else iconColor.copy(alpha = 0.6f),
+            )
+        }
+        // KMK <--
 
         if (
             !dualPageSplitEnabled &&

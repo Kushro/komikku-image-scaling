@@ -51,6 +51,7 @@ import eu.kanade.tachiyomi.util.lang.byteSize
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.DiskUtil.MAX_FILE_NAME_BYTES
 import eu.kanade.tachiyomi.util.storage.cacheImageDir
+import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import exh.metadata.metadata.RaisedSearchMetadata
 import exh.source.MERGED_SOURCE_ID
 import exh.source.getMainSource
@@ -488,6 +489,9 @@ class ReaderViewModel @JvmOverloads constructor(
                         page,
                         // SY <--
                     )
+                    // KMK --> Reset image enhancer for new chapter
+                    ImageEnhancer.reset(page ?: 0)
+                    // KMK <--
                     Result.success(true)
                 } else {
                     // Unlikely but okay
@@ -575,6 +579,9 @@ class ReaderViewModel @JvmOverloads constructor(
 
             try {
                 loadChapter(loader, chapter)
+                // KMK --> Reset image enhancer for new chapter
+                ImageEnhancer.reset()
+                // KMK <--
             } catch (e: Throwable) {
                 if (e is CancellationException) {
                     throw e
@@ -1079,6 +1086,13 @@ class ReaderViewModel @JvmOverloads constructor(
     }
 
     // SY -->
+    // KMK --> Toggle image enhancement
+    fun toggleImageEnhancement(): Boolean {
+        val enabled = !readerPreferences.realCuganEnabled().get()
+        readerPreferences.realCuganEnabled().set(enabled)
+        return enabled
+    }
+    // KMK <--
     fun toggleCropBorders(): Boolean {
         val readingMode = getMangaReadingMode()
         val isPagerType = ReadingMode.isPagerType(readingMode)

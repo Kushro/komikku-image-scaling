@@ -650,6 +650,9 @@ class ReaderActivity : BaseActivity() {
 
         val cropBorderPaged by readerPreferences.cropBorders().collectAsState()
         val cropBorderWebtoon by readerPreferences.cropBordersWebtoon().collectAsState()
+        // KMK -->
+        val imageEnhancementEnabled by readerPreferences.realCuganEnabled().collectAsState()
+        // KMK <--
         // SY -->
         val readingMode = viewModel.getMangaReadingMode()
         val isPagerType = ReadingMode.isPagerType(readingMode)
@@ -722,6 +725,19 @@ class ReaderActivity : BaseActivity() {
                 menuToggleToast?.cancel()
                 menuToggleToast = toast(if (enabled) MR.strings.on else MR.strings.off)
             },
+            // KMK -->
+            imageEnhancementEnabled = imageEnhancementEnabled,
+            onClickImageEnhancement = {
+                val enabled = viewModel.toggleImageEnhancement()
+                menuToggleToast?.cancel()
+                menuToggleToast = toast(
+                    stringResource(
+                        KMR.strings.reader_image_enhancement_toast,
+                        stringResource(if (enabled) MR.strings.on else MR.strings.off),
+                    ),
+                )
+            },
+            // KMK <--
             onClickSettings = viewModel::openSettingsDialog,
             // SY -->
             isExhToolsVisible = state.ehUtilsVisible,

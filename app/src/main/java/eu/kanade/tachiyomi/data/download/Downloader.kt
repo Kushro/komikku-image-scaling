@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.data.notification.NotificationHandler
 import eu.kanade.tachiyomi.source.UnmeteredSource
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.DiskUtil.NOMEDIA_FILE
 import eu.kanade.tachiyomi.util.storage.saveTo
@@ -88,12 +89,20 @@ class Downloader(
     // SY -->
     private val sourcePreferences: SourcePreferences = Injekt.get(),
     // SY <--
+    // KMK -->
+    private val readerPreferences: ReaderPreferences = Injekt.get(),
+    // KMK <--
 ) {
 
     /**
      * Store for persisting downloads across restarts.
      */
     private val store = DownloadStore(context)
+
+    // KMK --> Whether to enhance images during download
+    private val enhanceOnDownload: Boolean
+        get() = readerPreferences.realCuganEnabled().get() && readerPreferences.enhanceOnDownload().get()
+    // KMK <--
 
     /**
      * Queue where active downloads are kept.
@@ -437,6 +446,13 @@ class Downloader(
                 download.source,
             )
 
+            // KMK --> Write enhancement marker if enhance-on-download was active
+            if (enhanceOnDownload) {
+                val configHash = DownloadEnhancer.computeConfigHash(readerPreferences)
+                DownloadEnhancer.writeEnhancedMarker(tmpDir, configHash)
+            }
+            // KMK <--
+
             // Only rename the directory if it's downloaded
             if (downloadPreferences.saveChaptersAsCBZ().get()) {
                 archiveChapter(mangaDir, chapterDirname, tmpDir)
@@ -493,6 +509,15 @@ class Downloader(
 
             // When the page is ready, set page path, progress (just in case) and status
             splitTallImageIfNeeded(page, tmpDir)
+
+            // KMK --> Enhance on download
+            if (enhanceOnDownload) {
+                val imageFileAfterSplit = tmpDir.listFiles()?.firstOrNull {
+                    it.name!!.startsWith("$filename.") || it.name!!.startsWith("${filename}__001")
+                } ?: file
+                DownloadEnhancer.enhanceImage(context, imageFileAfterSplit, readerPreferences, page.index)
+            }
+            // KMK <--
 
             page.uri = file.uri
             page.progress = 100

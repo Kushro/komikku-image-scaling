@@ -1,0 +1,5 @@
+# ninja log v5
+14	859	1780196643818547400	CMakeFiles/waifu2x-jni.dir/anime4k.cpp.o	204f5626cc515ad0
+15	966	1780196643837858300	CMakeFiles/waifu2x-jni.dir/waifu2x_jni.cpp.o	512519d7e76b695f
+13	1016	1780196643973066600	CMakeFiles/waifu2x-jni.dir/waifu2x.cpp.o	3a0f9befea6b555d
+1022	2029	1780196644994580500	/mnt/e/Gitbutler Repos/komikku-image-scaling/app/build/intermediates/cxx/Debug/5v1f3h20/obj/armeabi-v7a/libwaifu2x-jni.so	b5232c6e45060730

@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
+import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -220,6 +221,11 @@ class PagerPageHolder(
                         disableZoomIn = viewer.config.disableZoomIn,
                         doubleTapZoom = viewer.config.doubleTapZoom,
                         landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
+                        enhanced = viewer.activity.viewModel.readerPreferences.realCuganEnabled().get(),
+                        mangaId = page.chapter.chapter.manga_id ?: -1L,
+                        chapterId = page.chapter.chapter.id ?: -1L,
+                        pageIndex = page.index,
+                        alreadyUpscaled = page.alreadyUpscaled,
                         // KMK <--
                     ),
                 )
