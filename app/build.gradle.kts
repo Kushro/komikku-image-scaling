@@ -2,6 +2,7 @@ import mihon.buildlogic.Config
 import mihon.buildlogic.getBuildTime
 import mihon.buildlogic.getCommitCount
 import mihon.buildlogic.getGitSha
+import java.util.Properties
 
 plugins {
     id("mihon.android.application")
@@ -22,11 +23,25 @@ if (Config.includeTelemetry) {
 
 shortcutHelper.setFilePath("./shortcuts.xml")
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use(::load)
+    }
+}
+
+val bundledNcnnSdkDir = rootProject.file("third_party/ncnn-20260526-android-vulkan")
+
+val ncnnSdkDir = providers.gradleProperty("ncnnSdkDir").orNull
+    ?: localProperties.getProperty("ncnn.sdk.dir")
+    ?: System.getenv("NCNN_SDK_DIR")
+    ?: bundledNcnnSdkDir.takeIf { it.exists() }?.absolutePath
+
 android {
     namespace = "eu.kanade.tachiyomi"
 
     defaultConfig {
-        applicationId = "app.komikku"
+        applicationId = "app.komikkup"
 
         versionCode = 79
         versionName = "1.13.6"
@@ -38,6 +53,14 @@ android {
         buildConfigField("boolean", "UPDATER_ENABLED", "${Config.enableUpdater}")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                if (!ncnnSdkDir.isNullOrBlank()) {
+                    arguments += "-DNCNN_SDK_DIR=$ncnnSdkDir"
+                }
+            }
+        }
     }
 
     buildTypes {
@@ -156,6 +179,15 @@ android {
         renderScript = false
         shaders = false
     }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    ndkVersion = "28.2.13676358"
 
     lint {
         abortOnError = false

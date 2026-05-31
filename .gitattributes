@@ -22,3 +22,8 @@
 *.woff binary
 *.pyc binary
 *.swp binary
+
+# Static/shared libraries must be treated as binary (NCNN)
+*.a binary
+*.so binary
+*.dylib binary

@@ -209,6 +209,13 @@ class WebtoonPageHolder(
                         cropBorders =
                         (viewer.config.imageCropBorders && viewer.isContinuous) ||
                             (viewer.config.continuousCropBorders && !viewer.isContinuous),
+                        // KMK -->
+                        enhanced = viewer.activity.viewModel.readerPreferences.realCuganEnabled().get(),
+                        mangaId = page?.chapter?.chapter?.manga_id ?: -1L,
+                        chapterId = page?.chapter?.chapter?.id ?: -1L,
+                        pageIndex = page?.index ?: -1,
+                        alreadyUpscaled = page?.alreadyUpscaled ?: false,
+                        // KMK <--
                     ),
                 )
                 removeErrorLayout()

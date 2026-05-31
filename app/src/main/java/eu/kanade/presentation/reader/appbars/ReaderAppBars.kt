@@ -75,6 +75,10 @@ fun ReaderAppBars(
     onClickOrientation: () -> Unit,
     cropEnabled: Boolean,
     onClickCropBorder: () -> Unit,
+    // KMK -->
+    imageEnhancementEnabled: Boolean,
+    onClickImageEnhancement: () -> Unit,
+    // KMK <--
     onClickSettings: () -> Unit,
     // SY -->
     isExhToolsVisible: Boolean,
@@ -262,6 +266,10 @@ fun ReaderAppBars(
                     onClickOrientation = onClickOrientation,
                     cropEnabled = cropEnabled,
                     onClickCropBorder = onClickCropBorder,
+                    // KMK -->
+                    imageEnhancementEnabled = imageEnhancementEnabled,
+                    onClickImageEnhancement = onClickImageEnhancement,
+                    // KMK <--
                     onClickSettings = onClickSettings,
                     // SY -->
                     enabledButtons = enabledButtons,

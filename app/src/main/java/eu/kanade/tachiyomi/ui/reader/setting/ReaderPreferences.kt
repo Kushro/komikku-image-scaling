@@ -211,6 +211,32 @@ class ReaderPreferences(
     fun archiveReaderMode() = preferenceStore.getInt("archive_reader_mode", ArchiveReaderMode.LOAD_FROM_FILE)
     // SY <--
 
+    // KMK -->
+    // Image enhancement (upscaling)
+    fun realCuganEnabled() = preferenceStore.getBoolean("pref_realCugan_enabled", false)
+    fun realCuganNoiseLevel() = preferenceStore.getInt("pref_realcugan_noise_level", 0)
+    fun realCuganScale() = preferenceStore.getInt("pref_realcugan_scale", 2)
+    fun realCuganInputScale() = preferenceStore.getInt("pref_realcugan_input_scale", 100)
+    fun realCuganModel() = preferenceStore.getInt("pref_realcugan_model", 0)
+    fun realCuganPreloadSize() = preferenceStore.getInt("pref_realcugan_preload_size", 3)
+    fun realCuganProEnabled() = preferenceStore.getBoolean("pref_realcugan_pro_enabled", false)
+    fun realCuganPerformanceMode() = preferenceStore.getInt("pref_realcugan_performance_mode", 0)
+    fun realCuganMaxSizeWidth() = preferenceStore.getInt("pref_realcugan_max_size_width", 1600)
+    fun realCuganMaxSizeHeight() = preferenceStore.getInt("pref_realcugan_max_size_height", 1600)
+    fun realCuganResizeLargeImage() = preferenceStore.getBoolean("pref_realcugan_resize_large_image", true)
+    fun realCuganShowStatus() = preferenceStore.getBoolean("pref_realcugan_show_status", false)
+    // KMK -->
+    fun enhanceOnDownload() = preferenceStore.getBoolean("pref_enhance_on_download", false)
+    // KMK <--
+    fun anime4kEnabled() = preferenceStore.getBoolean("pref_anime4k_enabled", false)
+    fun anime4kMode() = preferenceStore.getInt("pref_anime4k_mode", 0)
+    // Ink filter
+    fun inkFilter() = preferenceStore.getBoolean("ink_filter", false)
+    fun inkBleedingIntensity() = preferenceStore.getInt("ink_bleeding_intensity", 0)
+    fun inkBumpIntensity() = preferenceStore.getInt("ink_bump_intensity", 0)
+    fun inkOriginalIntensity() = preferenceStore.getInt("ink_original_intensity", 0)
+    // KMK <--
+
     enum class FlashColor {
         BLACK,
         WHITE,

@@ -1,10 +1,20 @@
 package eu.kanade.presentation.reader.settings
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import androidx.core.graphics.alpha
 import androidx.core.graphics.blue
 import androidx.core.graphics.green
@@ -13,8 +23,11 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences.Companion.ColorFi
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.kmk.KMR
 import tachiyomi.presentation.core.components.CheckboxItem
+import tachiyomi.presentation.core.components.HeadingItem
 import tachiyomi.presentation.core.components.SettingsChipRow
+import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.SliderItem
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
@@ -121,6 +134,155 @@ internal fun ColorFilterPage(screenModel: ReaderSettingsScreenModel) {
         label = stringResource(MR.strings.pref_inverted_colors),
         pref = screenModel.preferences.invertedColors(),
     )
+
+    // KMK --> Image enhancement
+    val realCuganEnabled by screenModel.preferences.realCuganEnabled().collectAsState()
+
+    CheckboxItem(
+        label = stringResource(KMR.strings.reader_image_enhancement),
+        checked = realCuganEnabled,
+        onClick = {
+            screenModel.preferences.realCuganEnabled().set(!realCuganEnabled)
+        },
+    )
+    if (realCuganEnabled) {
+        val realCuganModel by screenModel.preferences.realCuganModel().collectAsState()
+        val realCuganNoiseLevel by screenModel.preferences.realCuganNoiseLevel().collectAsState()
+        val realCuganScale by screenModel.preferences.realCuganScale().collectAsState()
+
+        SettingsChipRow(KMR.strings.reader_model) {
+            listOf("Real-CUGAN SE", "Real-CUGAN Pro", "Real-ESRGAN", "Real-CUGAN Nose", "Waifu2x", "Waifu2x (Fast)").mapIndexed { index, name ->
+                FilterChip(
+                    selected = realCuganModel == index,
+                    onClick = { screenModel.preferences.realCuganModel().set(index) },
+                    label = { Text(name) },
+                )
+            }
+        }
+
+        if (realCuganModel == 0 || realCuganModel == 1 || realCuganModel == 4 || realCuganModel == 5) {
+            val levels = if (realCuganModel == 1) { // Pro only has no-denoise, denoise3x, conservative
+                listOf(0 to stringResource(KMR.strings.reader_none), 3 to "3x", 4 to stringResource(KMR.strings.reader_conservative))
+            } else if (realCuganModel == 4) { // Waifu2x
+                listOf(0 to "1x", 1 to "2x", 2 to "3x")
+            } else if (realCuganModel == 5) { // Waifu2x Fast (UpConv7)
+                listOf(0 to stringResource(KMR.strings.reader_none), 1 to "1x", 2 to "2x", 3 to "3x")
+            } else { // SE
+                listOf(0 to stringResource(KMR.strings.reader_none), 1 to "1x", 2 to "2x", 3 to "3x", 4 to stringResource(KMR.strings.reader_conservative))
+            }
+
+            SettingsChipRow(KMR.strings.reader_denoise_level) {
+                levels.map { (index, name) ->
+                    FilterChip(
+                        selected = realCuganNoiseLevel == index,
+                        onClick = { screenModel.preferences.realCuganNoiseLevel().set(index) },
+                        label = { Text(name) },
+                    )
+                }
+            }
+        }
+
+        if (realCuganModel == 3 || realCuganModel == 4 || realCuganModel == 5) {
+            SettingsChipRow(KMR.strings.reader_scale_factor) {
+                FilterChip(
+                    selected = true,
+                    onClick = {},
+                    label = { Text(stringResource(KMR.strings.reader_scale_fixed_2x)) },
+                )
+            }
+        } else if (realCuganModel == 1) { // Pro only supports 2x, 3x
+            SettingsChipRow(KMR.strings.reader_scale_factor) {
+                listOf(2, 3).map { scale ->
+                    FilterChip(
+                        selected = realCuganScale == scale,
+                        onClick = { screenModel.preferences.realCuganScale().set(scale) },
+                        label = { Text("${scale}x") },
+                    )
+                }
+            }
+        } else {
+            SettingsChipRow(KMR.strings.reader_scale_factor) {
+                listOf(2, 3, 4).map { scale ->
+                    FilterChip(
+                        selected = realCuganScale == scale,
+                        onClick = { screenModel.preferences.realCuganScale().set(scale) },
+                        label = { Text("${scale}x") },
+                    )
+                }
+            }
+        }
+
+        SettingsChipRow(KMR.strings.reader_preload_pages) {
+            listOf(1, 2, 3, 5, 8).map { size ->
+                val realCuganPreloadSize by screenModel.preferences.realCuganPreloadSize().collectAsState()
+                FilterChip(
+                    selected = realCuganPreloadSize == size,
+                    onClick = { screenModel.preferences.realCuganPreloadSize().set(size) },
+                    label = { Text(stringResource(KMR.strings.reader_preload_pages_value, size)) },
+                )
+            }
+        }
+
+        SettingsChipRow(KMR.strings.reader_gpu_performance_mode) {
+            val performanceMode by screenModel.preferences.realCuganPerformanceMode().collectAsState()
+            listOf(
+                0 to stringResource(KMR.strings.reader_gpu_performance_high),
+                1 to stringResource(KMR.strings.reader_gpu_performance_balanced),
+                2 to stringResource(KMR.strings.reader_gpu_performance_power_saving),
+            ).map { (value, name) ->
+                FilterChip(
+                    selected = performanceMode == value,
+                    onClick = { screenModel.preferences.realCuganPerformanceMode().set(value) },
+                    label = { Text(name) },
+                )
+            }
+        }
+
+        Column {
+            HeadingItem(stringResource(KMR.strings.reader_target_resolution))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = SettingsItemsPaddings.Horizontal, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                val maxWidth by screenModel.preferences.realCuganMaxSizeWidth().collectAsState()
+                OutlinedTextField(
+                    modifier = Modifier.weight(1f),
+                    value = maxWidth.toString(),
+                    onValueChange = { s ->
+                        s.toIntOrNull()?.let { screenModel.preferences.realCuganMaxSizeWidth().set(it) }
+                    },
+                    label = { Text(stringResource(KMR.strings.reader_target_width)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                )
+                val maxHeight by screenModel.preferences.realCuganMaxSizeHeight().collectAsState()
+                OutlinedTextField(
+                    modifier = Modifier.weight(1f),
+                    value = maxHeight.toString(),
+                    onValueChange = { s ->
+                        s.toIntOrNull()?.let { screenModel.preferences.realCuganMaxSizeHeight().set(it) }
+                    },
+                    label = { Text(stringResource(KMR.strings.reader_target_height)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                )
+            }
+        }
+
+        CheckboxItem(
+            label = stringResource(KMR.strings.reader_show_processing_status),
+            pref = screenModel.preferences.realCuganShowStatus(),
+        )
+        // KMK -->
+        CheckboxItem(
+            label = stringResource(KMR.strings.reader_enhance_on_download),
+            pref = screenModel.preferences.enhanceOnDownload(),
+        )
+        // KMK <--
+    }
+    // KMK <--
 }
 
 private fun getColorValue(currentColor: Int, color: Int, mask: Long, bitShift: Int): Int {

@@ -25,4 +25,11 @@ open class ReaderPage(
             field = value
             if (value) shiftedPage = false
         }
+
+    // KMK -->
+    var enhancementStream: (() -> InputStream)? = null
+    var enhancementKeySuffix: String = ""
+    /** Whether this page was already upscaled during download — skip re-enhancement in the reader */
+    var alreadyUpscaled: Boolean = false
+    // KMK <--
 }
