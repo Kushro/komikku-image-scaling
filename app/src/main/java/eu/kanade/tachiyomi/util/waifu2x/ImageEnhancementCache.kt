@@ -41,7 +41,7 @@ object ImageEnhancementCache {
         val file = File(getChapterDir(mangaId, chapterId), getFilename(pageIndex, configHash, pageVariant))
         return if (file.exists()) file else null
     }
-    
+
     /**
      * Check if a file is already cached (helper for UI checks)
      */
@@ -80,11 +80,11 @@ object ImageEnhancementCache {
      */
     fun saveToCache(mangaId: Long, chapterId: Long, pageIndex: Int, configHash: String, bitmap: Bitmap, pageVariant: String = ""): File? {
         val currentCacheDir = cacheDir ?: return null
-        
+
         try {
             val file = File(getChapterDir(mangaId, chapterId), getFilename(pageIndex, configHash, pageVariant))
             val tempFile = File(file.parent, "${file.name}.tmp")
-            
+
             FileOutputStream(tempFile).use { out ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, out)
@@ -94,7 +94,7 @@ object ImageEnhancementCache {
                 }
                 out.flush()
             }
-            
+
             if (tempFile.renameTo(file)) {
                 return file
             } else {
@@ -151,7 +151,7 @@ object ImageEnhancementCache {
             }
         }
     }
-    
+
     /**
      * Delete all cache files
      */
@@ -178,17 +178,17 @@ object ImageEnhancementCache {
      * Generate a unique hash string based on current settings
      */
     fun getConfigHash(
-        noise: Int, 
-        scale: Int, 
+        noise: Int,
+        scale: Int,
         inputScale: Int,
         model: Int = 0,
         maxWidth: Int = 0,
         maxHeight: Int = 0,
-        resizeEnabled: Boolean = false
+        resizeEnabled: Boolean = false,
     ): String {
         return "${noise}x${scale}x${inputScale}_m${model}_w${maxWidth}_h${maxHeight}_r${if (resizeEnabled) 1 else 0}"
     }
-    
+
     /**
      * Clear all cache files for a specific chapter
      */
@@ -215,18 +215,18 @@ object ImageEnhancementCache {
 
         init(context)
         val dir = cacheDir ?: return
-        
+
         try {
             var size = dir.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
             if (size > MAX_CACHE_SIZE) {
                 android.util.Log.d("ImageEnhancementCache", "Cache size ${size / 1024 / 1024}MB > 3GB, trimming...")
-                
+
                 // Get all files sorted by last modified (oldest first)
                 val files = dir.walkTopDown()
                     .filter { it.isFile }
                     .sortedBy { it.lastModified() }
                     .iterator()
-                
+
                 while (files.hasNext() && size > MAX_CACHE_SIZE * 0.9) { // Trim to 90%
                     val file = files.next()
                     val len = file.length()

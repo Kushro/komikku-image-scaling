@@ -11,10 +11,15 @@ import java.io.File
 object Waifu2x {
 
     @Volatile private var isInitialized = false
+
     @Volatile private var isRealCuganInitialized = false
+
     @Volatile private var isRealEsrganInitialized = false
+
     @Volatile private var isNoseInitialized = false
+
     @Volatile private var isWaifu2xInitialized = false
+
     @Volatile private var isAnime4kInitialized = false
 
     init {
@@ -27,15 +32,15 @@ object Waifu2x {
 
     fun init(context: Context, noiseLevel: Int = 2, scale: Int = 2): Boolean {
         if (isInitialized) return true
-        
+
         return synchronized(this) {
             if (isInitialized) return true
-    
+
             val modelDir = extractModelsToCache(context, "waifu2x-models")
             if (modelDir == null) {
                 return false
             }
-    
+
             isInitialized = nativeInit(modelDir, noiseLevel, scale)
             if (isInitialized) {
                 // Invalidate all other models
@@ -51,7 +56,7 @@ object Waifu2x {
 
     /**
      * Process a bitmap image with Waifu2x upscaling.
-     * 
+     *
      * @param input Input bitmap (will not be modified)
      * @return Upscaled bitmap, or null if processing failed
      */
@@ -70,6 +75,7 @@ object Waifu2x {
 
     // Track current config to detect changes (excludes tileSleepMs since that doesn't require model reload)
     private data class RealCuganConfig(val noise: Int, val scale: Int, val isPro: Boolean)
+
     @Volatile private var lastRealCuganConfig: RealCuganConfig? = null
 
     fun initRealCugan(context: Context, noiseLevel: Int, scale: Int, isPro: Boolean = false, tileSleepMs: Int = 0, tileSize: Int = 128): Boolean {
@@ -83,37 +89,37 @@ object Waifu2x {
 
         return synchronized(this) {
             val currentConfig = RealCuganConfig(noiseLevel, scale, isPro)
-            
+
             // Force reinit only if model parameters changed (not tileSleepMs)
             if (lastRealCuganConfig != currentConfig) {
                 android.util.Log.d("Waifu2x", "Config changed from $lastRealCuganConfig to $currentConfig, reinitializing...")
                 isRealCuganInitialized = false
             }
-            
+
             if (isRealCuganInitialized) {
                 // Model already loaded, just update performance params
                 nativeUpdatePerformanceConfig(tileSleepMs, tileSize)
                 return true
             }
-    
+
             val assetPath = if (isPro) "realcugan-pro-models" else "realcugan-models"
             val modelDir = extractModelsToCache(context, assetPath)
             if (modelDir == null) {
                 return false
             }
-    
+
             isRealCuganInitialized = nativeInitRealCugan(modelDir, noiseLevel, scale, tileSleepMs)
             if (isRealCuganInitialized) {
                 lastRealCuganConfig = currentConfig
                 nativeUpdatePerformanceConfig(tileSleepMs, tileSize)
-                
+
                 // Invalidate all other models
                 isInitialized = false
                 isRealEsrganInitialized = false
                 isNoseInitialized = false
                 isWaifu2xInitialized = false
                 isAnime4kInitialized = false
-                
+
                 android.util.Log.d("Waifu2x", "Initialized Real-CUGAN: isPro=$isPro, noise=$noiseLevel, scale=$scale, tileSleepMs=$tileSleepMs, tileSize=$tileSize")
             }
             isRealCuganInitialized
@@ -129,7 +135,7 @@ object Waifu2x {
             android.util.Log.d("Waifu2x", "Real-ESRGAN scale changed from $lastRealEsrganScale to $scale, reinitializing...")
             isRealEsrganInitialized = false
         }
-        
+
         if (isRealEsrganInitialized) {
             // Update throttling
             nativeUpdatePerformanceConfig(tileSleepMs, tileSize)
@@ -146,14 +152,14 @@ object Waifu2x {
         if (isRealEsrganInitialized) {
             lastRealEsrganScale = scale
             nativeUpdatePerformanceConfig(tileSleepMs, tileSize)
-            
+
             // Invalidate all other models
             isInitialized = false
             isRealCuganInitialized = false
             isNoseInitialized = false
             isWaifu2xInitialized = false
             isAnime4kInitialized = false
-            
+
             android.util.Log.d("Waifu2x", "Initialized Real-ESRGAN: scale=$scale, tileSleepMs=$tileSleepMs, tileSize=$tileSize")
         }
         isRealEsrganInitialized
@@ -173,14 +179,14 @@ object Waifu2x {
         isNoseInitialized = nativeInitNose(modelDir)
         if (isNoseInitialized) {
             nativeUpdatePerformanceConfig(tileSleepMs, tileSize)
-            
+
             // Invalidate all other models
             isInitialized = false
             isRealCuganInitialized = false
             isRealEsrganInitialized = false
             isWaifu2xInitialized = false
             isAnime4kInitialized = false
-            
+
             android.util.Log.d("Waifu2x", "Initialized Nose model, tileSleepMs=$tileSleepMs, tileSize=$tileSize")
         }
         isNoseInitialized
@@ -192,33 +198,33 @@ object Waifu2x {
 
     fun initWaifu2x(context: Context, noise: Int, scale: Int, tileSleepMs: Int = 0, tileSize: Int = 128): Boolean = synchronized(this) {
         val newConfig = Waifu2xConfig(noise, scale)
-        
+
         // Force reinit if config changed
         if (lastWaifu2xConfig != newConfig) {
             android.util.Log.d("Waifu2x", "Waifu2x config changed from $lastWaifu2xConfig to $newConfig, reinitializing...")
             isWaifu2xInitialized = false
         }
-        
+
         if (isWaifu2xInitialized) {
             nativeUpdatePerformanceConfig(tileSleepMs, tileSize)
             return true
         }
-        
+
         val modelDir = extractModelsToCache(context, "waifu2x-models")
         if (modelDir == null) return false
-        
+
         isWaifu2xInitialized = nativeInit(modelDir, noise, scale)
         if (isWaifu2xInitialized) {
             lastWaifu2xConfig = newConfig
             nativeUpdatePerformanceConfig(tileSleepMs, tileSize)
-            
+
             // Invalidate all other models
             isInitialized = false
             isRealCuganInitialized = false
             isRealEsrganInitialized = false
             isNoseInitialized = false
             isAnime4kInitialized = false
-            
+
             android.util.Log.d("Waifu2x", "Initialized Waifu2x: noise=$noise, scale=$scale, tileSleepMs=$tileSleepMs, tileSize=$tileSize")
         }
         isWaifu2xInitialized
@@ -245,14 +251,14 @@ object Waifu2x {
         if (isWaifu2xInitialized) {
             lastWaifu2xConfig = newConfig
             nativeUpdatePerformanceConfig(tileSleepMs, tileSize)
-            
+
             // Invalidate all other models
             isInitialized = false
             isRealCuganInitialized = false
             isRealEsrganInitialized = false
             isNoseInitialized = false
             isAnime4kInitialized = false
-            
+
             android.util.Log.d("Waifu2x", "Initialized Waifu2x UpConv7: noise=$noise, scale=$scale, tileSleepMs=$tileSleepMs, tileSize=$tileSize")
         }
         isWaifu2xInitialized
@@ -266,7 +272,7 @@ object Waifu2x {
         if (!isRealEsrganInitialized) return null
         return processBitmapHelper(input, id)
     }
-    
+
     fun processNose(input: Bitmap, id: Int = -1): Bitmap? {
         if (!isNoseInitialized) return null
         return processBitmapHelper(input, id)
@@ -276,12 +282,12 @@ object Waifu2x {
         if (!isWaifu2xInitialized) return null
         return processBitmapHelper(input, id)
     }
-    
+
     @Volatile var processingId: Int = -1
 
     private fun processBitmapHelper(input: Bitmap, id: Int): Bitmap? {
         if (input.isRecycled) return null
-        
+
         val argbBitmap = if (input.config != Bitmap.Config.ARGB_8888) {
             try {
                 input.copy(Bitmap.Config.ARGB_8888, false)
@@ -291,7 +297,7 @@ object Waifu2x {
         } else {
             input
         } ?: return null
-        
+
         processingId = id
         try {
             return nativeProcessRealCugan(argbBitmap, id)
@@ -308,7 +314,7 @@ object Waifu2x {
      * Format: [ID (upper 32 bits)] [Progress (lower 32 bits)]
      */
     fun getProgress(): Long = nativeGetProgress()
-    
+
     /**
      * Get only the progress percentage (0-100) from the packed value.
      */
@@ -316,7 +322,7 @@ object Waifu2x {
         val packed = nativeGetProgress()
         return (packed and 0xFFFFFFFF).toInt()
     }
-    
+
     /**
      * Get only the processing ID from the packed value.
      */
@@ -394,11 +400,11 @@ object Waifu2x {
         isAnime4kInitialized = nativeInitAnime4K(shaders.toTypedArray(), names.toTypedArray())
         // Invalidate all other models
         if (isAnime4kInitialized) {
-             isInitialized = false
-             isRealCuganInitialized = false
-             isRealEsrganInitialized = false
-             isNoseInitialized = false
-             isWaifu2xInitialized = false
+            isInitialized = false
+            isRealCuganInitialized = false
+            isRealEsrganInitialized = false
+            isNoseInitialized = false
+            isWaifu2xInitialized = false
         }
         return isAnime4kInitialized
     }
@@ -422,13 +428,12 @@ object Waifu2x {
         try {
             return nativeProcessAnime4K(argbBitmap)
         } finally {
-            // We don't recycle argbBitmap if it's the same as input, 
+            // We don't recycle argbBitmap if it's the same as input,
             // but here it's always a copy (true).
             // Actually, nativeProcessAnime4K returns the SAME bitmap (in-place)
             // so we SHOULD NOT recycle it here if it's the result.
         }
     }
-
 
     private fun extractModelsToCache(context: Context, assetPath: String): String? {
         return try {
@@ -490,7 +495,7 @@ object Waifu2x {
     private external fun nativeProcess(input: Bitmap, id: Int): Bitmap?
     private external fun nativeDestroy()
     private external fun nativeSetUiBusy(busy: Boolean)
-    
+
     // ... (Anime4K signatures unchanged)
 
     private external fun nativeInitAnime4K(shaders: Array<String>, names: Array<String>): Boolean
@@ -498,13 +503,13 @@ object Waifu2x {
 
     private external fun nativeInitRealCugan(modelDir: String, noiseLevel: Int, scale: Int, tileSleepMs: Int): Boolean
     private external fun nativeUpdatePerformanceConfig(tileSleepMs: Int, tileSize: Int)
-    
+
     fun updatePerformance(tileSleepMs: Int, tileSize: Int) {
         if (isRealCuganInitialized || isRealEsrganInitialized || isNoseInitialized || isWaifu2xInitialized) {
             nativeUpdatePerformanceConfig(tileSleepMs, tileSize)
         }
     }
-    
+
     private external fun nativeInitRealESRGAN(modelDir: String, scale: Int): Boolean
     private external fun nativeInitNose(modelDir: String): Boolean
     private external fun nativeProcessRealCugan(input: Bitmap, id: Int): Bitmap?

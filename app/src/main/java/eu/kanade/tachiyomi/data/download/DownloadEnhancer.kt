@@ -80,8 +80,15 @@ object DownloadEnhancer {
             }
 
             // Performance mode
-            val tileSleepMs = when (perfMode) { 1, 2 -> 15; else -> 0 }
-            val tileSize = when (perfMode) { 1 -> 96; 2 -> 64; else -> 128 }
+            val tileSleepMs = when (perfMode) {
+                1, 2 -> 15
+                else -> 0
+            }
+            val tileSize = when (perfMode) {
+                1 -> 96
+                2 -> 64
+                else -> 128
+            }
 
             // Initialize the model
             val initialized = when (model) {

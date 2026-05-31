@@ -2,10 +2,12 @@ package eu.kanade.tachiyomi.util.waifu2x
 
 import android.content.Context
 import coil3.SingletonImageLoader
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import eu.kanade.tachiyomi.data.coil.chapterId
+import eu.kanade.tachiyomi.data.coil.customDecoder
 import eu.kanade.tachiyomi.data.coil.enhanced
 import eu.kanade.tachiyomi.data.coil.mangaId
-import eu.kanade.tachiyomi.data.coil.chapterId
 import eu.kanade.tachiyomi.data.coil.pageIndex
 import eu.kanade.tachiyomi.data.coil.pageVariant
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
@@ -13,20 +15,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
+import logcat.LogPriority
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import tachiyomi.core.common.util.system.logcat
-import eu.kanade.tachiyomi.data.coil.customDecoder
-import logcat.LogPriority
-import java.util.concurrent.PriorityBlockingQueue
-import kotlinx.coroutines.runInterruptible
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.ConcurrentHashMap
-import coil3.request.CachePolicy
+import java.util.concurrent.PriorityBlockingQueue
+import java.util.concurrent.atomic.AtomicInteger
 
 object ImageEnhancer {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val pendingRequests = ConcurrentHashMap<String, Unit>()
-    
+
     // Priority Queue order:
     // 1. Current visible primary page
     // 2. Current visible secondary page in double-page mode
@@ -78,7 +78,7 @@ object ImageEnhancer {
         val pageVariant: String,
         val data: Any,
         val priority: Int, // 1 = promoted/high priority, 0 = preload
-        val seq: Int = 0
+        val seq: Int = 0,
     ) : Comparable<EnhanceRequest> {
         private fun effectivePriority(): Int {
             return when {
@@ -93,13 +93,13 @@ object ImageEnhancer {
             // 1. Effective priority based on current visible spread and promotion state.
             val p = other.effectivePriority().compareTo(effectivePriority()) // Descending
             if (p != 0) return p
-            
+
             // 2. Distance from Target Page (Closer > Farther)
             // Even if multiple pages are "High Priority", the one closest to user focus wins.
             val currentTarget = targetPageIndex
             val dist1 = kotlin.math.abs(pageIndex - currentTarget)
             val dist2 = kotlin.math.abs(other.pageIndex - currentTarget)
-            
+
             val d = dist1.compareTo(dist2) // Ascending (0 distance is best)
             if (d != 0) return d
 
@@ -130,29 +130,28 @@ object ImageEnhancer {
                 }
             }
         }
-
     }
 
     fun enhance(context: Context, page: ReaderPage, highPriority: Boolean = false) {
         val mangaId = page.chapter.chapter.manga_id ?: -1L
         val chapterId = page.chapter.chapter.id ?: -1L
-        
+
         if (mangaId == -1L || chapterId == -1L) return
 
         // Prioritize stream over imageUrl. For online manga, imageUrl can be a placeholder
         // (e.g., https://127.0.0.1/...) while the actual image data is in the stream.
         val data: Any = page.enhancementStream?.let { streamFn ->
-             try {
-                 okio.Buffer().readFrom(streamFn())
-             } catch (e: Exception) {
-                 null
-             }
+            try {
+                okio.Buffer().readFrom(streamFn())
+            } catch (e: Exception) {
+                null
+            }
         } ?: page.stream?.let { streamFn ->
-             try {
-                 okio.Buffer().readFrom(streamFn())
-             } catch (e: Exception) {
-                 null
-             }
+            try {
+                okio.Buffer().readFrom(streamFn())
+            } catch (e: Exception) {
+                null
+            }
         } ?: page.imageUrl ?: return
 
         enhance(context, mangaId, chapterId, page.index, data, highPriority, page.enhancementKeySuffix)
@@ -168,22 +167,22 @@ object ImageEnhancer {
         }
 
         val effectiveHighPriority = highPriority || isInitialTargetRequest
-        val requestKey = "${mangaId}_${chapterId}_${pageIndex}_${pageVariant}"
-        
+        val requestKey = "${mangaId}_${chapterId}_${pageIndex}_$pageVariant"
+
         if (pendingRequests.containsKey(requestKey)) {
             if (effectiveHighPriority) {
-                 // Upgrade priority: Remove existing (likely Low) and re-add as High
-                 val removed = queue.removeIf { 
-                     it.mangaId == mangaId && it.chapterId == chapterId && it.pageIndex == pageIndex && it.pageVariant == pageVariant
-                 }
-                 if (removed) {
-                     logcat(LogPriority.DEBUG) { "ImageEnhancer: Upgrading page $pageIndex/$pageVariant to High Priority" }
-                     pendingRequests.remove(requestKey)
-                     // Proceed to add below
-                 } else {
-                     // Already processing or failed to remove, skip
-                     return
-                 }
+                // Upgrade priority: Remove existing (likely Low) and re-add as High
+                val removed = queue.removeIf {
+                    it.mangaId == mangaId && it.chapterId == chapterId && it.pageIndex == pageIndex && it.pageVariant == pageVariant
+                }
+                if (removed) {
+                    logcat(LogPriority.DEBUG) { "ImageEnhancer: Upgrading page $pageIndex/$pageVariant to High Priority" }
+                    pendingRequests.remove(requestKey)
+                    // Proceed to add below
+                } else {
+                    // Already processing or failed to remove, skip
+                    return
+                }
             } else {
                 // Already pending and we are Low priority, so skip
                 return
@@ -199,7 +198,7 @@ object ImageEnhancer {
         val priorityLevel = if (effectiveHighPriority) 1 else 0
         val req = EnhanceRequest(context, mangaId, chapterId, pageIndex, pageVariant, data, priorityLevel, seqGenerator.getAndIncrement())
         queue.offer(req)
-        
+
         logcat(LogPriority.DEBUG) { "ImageEnhancer: Enqueued page $pageIndex/$pageVariant (priority=$priorityLevel)" }
     }
 
@@ -232,14 +231,13 @@ object ImageEnhancer {
         if (snapshot.isNotEmpty()) {
             queue.addAll(snapshot)
             logcat(LogPriority.DEBUG) {
-                "ImageEnhancer: Reprioritized ${snapshot.size} queued pages around target=$pageIndex/$pageVariant secondary=${targetSecondaryPageIndex}/${targetSecondaryPageVariant}"
+                "ImageEnhancer: Reprioritized ${snapshot.size} queued pages around target=$pageIndex/$pageVariant secondary=$targetSecondaryPageIndex/$targetSecondaryPageVariant"
             }
         }
     }
 
-
     fun hasRequest(mangaId: Long, chapterId: Long, pageIndex: Int, pageVariant: String = ""): Boolean {
-        return pendingRequests.containsKey("${mangaId}_${chapterId}_${pageIndex}_${pageVariant}")
+        return pendingRequests.containsKey("${mangaId}_${chapterId}_${pageIndex}_$pageVariant")
     }
 
     fun isFocusedTarget(pageIndex: Int, pageVariant: String = ""): Boolean {
@@ -255,14 +253,14 @@ object ImageEnhancer {
     }
 
     fun cancel(mangaId: Long, chapterId: Long, pageIndex: Int, pageVariant: String = "") {
-        val requestKey = "${mangaId}_${chapterId}_${pageIndex}_${pageVariant}"
+        val requestKey = "${mangaId}_${chapterId}_${pageIndex}_$pageVariant"
         if (pendingRequests.remove(requestKey) != null) {
-             val removed = queue.removeIf { 
-                 it.mangaId == mangaId && it.chapterId == chapterId && it.pageIndex == pageIndex && it.pageVariant == pageVariant
-             }
-             if (removed) {
-                 logcat(LogPriority.DEBUG) { "ImageEnhancer: Cancelled page $pageIndex/$pageVariant" }
-             }
+            val removed = queue.removeIf {
+                it.mangaId == mangaId && it.chapterId == chapterId && it.pageIndex == pageIndex && it.pageVariant == pageVariant
+            }
+            if (removed) {
+                logcat(LogPriority.DEBUG) { "ImageEnhancer: Cancelled page $pageIndex/$pageVariant" }
+            }
         }
     }
 
@@ -307,7 +305,7 @@ object ImageEnhancer {
                 .pageIndex(req.pageIndex)
                 .pageVariant(req.pageVariant)
                 .build()
-            
+
             SingletonImageLoader.get(req.context).enqueue(request).job.await()
         } finally {
             activeMangaId = -1L

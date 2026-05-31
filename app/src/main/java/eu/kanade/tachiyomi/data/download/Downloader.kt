@@ -7,12 +7,12 @@ import eu.kanade.domain.manga.model.getComicInfo
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.data.cache.ChapterCache
 import eu.kanade.tachiyomi.data.download.model.Download
-import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.data.library.LibraryUpdateNotifier
 import eu.kanade.tachiyomi.data.notification.NotificationHandler
 import eu.kanade.tachiyomi.source.UnmeteredSource
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.DiskUtil.NOMEDIA_FILE
 import eu.kanade.tachiyomi.util.storage.saveTo
@@ -513,7 +513,7 @@ class Downloader(
             // KMK --> Enhance on download
             if (enhanceOnDownload) {
                 val imageFileAfterSplit = tmpDir.listFiles()?.firstOrNull {
-                    it.name!!.startsWith("${filename}.") || it.name!!.startsWith("${filename}__001")
+                    it.name!!.startsWith("$filename.") || it.name!!.startsWith("${filename}__001")
                 } ?: file
                 DownloadEnhancer.enhanceImage(context, imageFileAfterSplit, readerPreferences, page.index)
             }
