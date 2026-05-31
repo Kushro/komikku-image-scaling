@@ -13,6 +13,7 @@ jobs:
 
     steps:
       - name: Update website on release
+        if: false
         uses: benc-uk/workflow-dispatch@a54f9d194fed472732282ed1597dc4909e4b4080 # v1.3.0
         with:
           workflow: Deploy
