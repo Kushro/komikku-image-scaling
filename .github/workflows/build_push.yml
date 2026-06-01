@@ -74,7 +74,6 @@ jobs:
           path: app/build/reports/tests/testReleaseUnitTest
 
       - name: Sign APK
-        if: false
         uses: r0adkll/sign-android-release@f30bdd30588842ac76044ecdbd4b6d0e3e813478
         with:
           releaseDirectory: app/build/outputs/apk/preview
@@ -95,7 +94,7 @@ jobs:
           echo "VERSION_TAG=$version_tag" >> $GITHUB_OUTPUT
           echo "COMMIT_COUNT=$commit_count"
           echo "COMMIT_COUNT=$commit_count" >> $GITHUB_OUTPUT
-          mv app/build/outputs/apk/preview/app-universal-preview.apk KomikkUP-$version_tag-r$commit_count.apk
+          mv app/build/outputs/apk/preview/app-universal-preview-signed.apk KomikkUP-$version_tag-r$commit_count.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
