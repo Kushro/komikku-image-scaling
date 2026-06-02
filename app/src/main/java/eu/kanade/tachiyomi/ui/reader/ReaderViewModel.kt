@@ -1086,11 +1086,19 @@ class ReaderViewModel @JvmOverloads constructor(
     }
 
     // SY -->
-    // KMK --> Toggle image enhancement
+    // KMK --> Toggle image enhancement on/off via the enhancementMode preference.
+    // Remembers the last active mode (live/remote/download) so toggling back on restores it.
     fun toggleImageEnhancement(): Boolean {
-        val enabled = !readerPreferences.realCuganEnabled().get()
-        readerPreferences.realCuganEnabled().set(enabled)
-        return enabled
+        val current = readerPreferences.enhancementMode().get()
+        return if (current != 0) {
+            readerPreferences.lastEnhancementMode().set(current)
+            readerPreferences.enhancementMode().set(0)
+            false
+        } else {
+            val restored = readerPreferences.lastEnhancementMode().get().takeIf { it != 0 } ?: 2
+            readerPreferences.enhancementMode().set(restored)
+            true
+        }
     }
     // KMK <--
     fun toggleCropBorders(): Boolean {
@@ -1129,6 +1137,14 @@ class ReaderViewModel @JvmOverloads constructor(
     // KMK -->
     fun updateProcessingStatus(message: String?) {
         mutableState.update { it.copy(processingStatus = message) }
+    }
+
+    /**
+     * Rebuilds the current viewer's page views. Used after enhancement caches are cleared
+     * (e.g. "Force re-upscale") so pages re-run their enhancement pipeline immediately.
+     */
+    fun requestViewerReload() {
+        eventChannel.trySend(Event.ReloadViewerChapters)
     }
     // KMK <--
 

@@ -334,6 +334,9 @@ class ReaderActivity : BaseActivity() {
                     readerState = viewModel.state,
                     onChangeReadingMode = viewModel::setMangaReadingMode,
                     onChangeOrientation = viewModel::setMangaOrientationType,
+                    // KMK -->
+                    onRequestReload = viewModel::requestViewerReload,
+                    // KMK <--
                 )
             }
 
@@ -675,7 +678,8 @@ class ReaderActivity : BaseActivity() {
         val cropBorderPaged by readerPreferences.cropBorders().collectAsState()
         val cropBorderWebtoon by readerPreferences.cropBordersWebtoon().collectAsState()
         // KMK -->
-        val imageEnhancementEnabled by readerPreferences.realCuganEnabled().collectAsState()
+        val imageEnhancementMode by readerPreferences.enhancementMode().collectAsState()
+        val imageEnhancementEnabled = imageEnhancementMode != 0
         // KMK <--
         // SY -->
         val readingMode = viewModel.getMangaReadingMode()
@@ -1464,6 +1468,28 @@ class ReaderActivity : BaseActivity() {
                 }
                 .launchIn(lifecycleScope)
             // SY <--
+
+            // KMK --> Reload the viewer whenever any image-enhancement setting changes so the
+            // selected mode (none/download/live/remote) and its parameters activate immediately,
+            // instead of only after an app restart (already-built page views keep their old mode).
+            combine(
+                listOf(
+                    readerPreferences.enhancementMode().changes(),
+                    readerPreferences.realCuganModel().changes(),
+                    readerPreferences.realCuganNoiseLevel().changes(),
+                    readerPreferences.realCuganScale().changes(),
+                    readerPreferences.realCuganMaxSizeWidth().changes(),
+                    readerPreferences.realCuganMaxSizeHeight().changes(),
+                    readerPreferences.realCuganResizeLargeImage().changes(),
+                    readerPreferences.realCuganPerformanceMode().changes(),
+                    readerPreferences.remoteUpscalerHost().changes(),
+                    readerPreferences.remoteUpscalerPort().changes(),
+                ).map { pref -> pref.map { } },
+            ) { }
+                .drop(1)
+                .onEach { viewModel.state.value.viewerChapters?.let(::setChapters) }
+                .launchIn(lifecycleScope)
+            // KMK <--
         }
 
         /**
