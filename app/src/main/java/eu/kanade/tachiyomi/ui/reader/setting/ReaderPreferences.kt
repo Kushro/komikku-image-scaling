@@ -215,7 +215,8 @@ class ReaderPreferences(
     // Image enhancement (upscaling)
     // Enhancement mode: 0=NONE, 1=DOWNLOAD_ONLY, 2=LIVE_LOCAL, 3=REMOTE
     fun enhancementMode() = preferenceStore.getInt("pref_enhancement_mode", 0)
-    fun realCuganEnabled() = preferenceStore.getBoolean("pref_realCugan_enabled", false)
+    // Remembers the last active (non-zero) mode so the reader toolbar can quick-toggle enhancement on/off
+    fun lastEnhancementMode() = preferenceStore.getInt("pref_last_enhancement_mode", 2)
     fun realCuganNoiseLevel() = preferenceStore.getInt("pref_realcugan_noise_level", 0)
     fun realCuganScale() = preferenceStore.getInt("pref_realcugan_scale", 2)
     fun realCuganInputScale() = preferenceStore.getInt("pref_realcugan_input_scale", 100)
@@ -228,7 +229,6 @@ class ReaderPreferences(
     fun realCuganResizeLargeImage() = preferenceStore.getBoolean("pref_realcugan_resize_large_image", true)
     fun realCuganShowStatus() = preferenceStore.getBoolean("pref_realcugan_show_status", false)
     // Remote upscaler (routes images to a Python TUI server instead of local NCNN)
-    fun remoteUpscalerEnabled() = preferenceStore.getBoolean("pref_remote_upscaler_enabled", false)
     fun remoteUpscalerHost() = preferenceStore.getString("pref_remote_upscaler_host", "")
     fun remoteUpscalerPort() = preferenceStore.getInt("pref_remote_upscaler_port", 8282)
     // KMK -->

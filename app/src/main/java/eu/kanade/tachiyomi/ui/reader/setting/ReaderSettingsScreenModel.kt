@@ -27,6 +27,9 @@ class ReaderSettingsScreenModel(
     val onChangeReadingMode: (ReadingMode) -> Unit,
     val onChangeOrientation: (ReaderOrientation) -> Unit,
     val preferences: ReaderPreferences = Injekt.get(),
+    // KMK --> Triggers a viewer reload so cleared pages re-run enhancement (e.g. force re-upscale)
+    val onRequestReload: () -> Unit = {},
+    // KMK <--
 ) : ScreenModel {
 
     val viewerFlow = readerState
@@ -77,6 +80,8 @@ class ReaderSettingsScreenModel(
                 remoteHash = "$host:$port",
             )
             ImageEnhancementCache.clearForChapter(mangaId, chapterId, configHash)
+            // Rebuild the viewer so the now-uncached pages re-run the remote upscale pipeline.
+            onRequestReload()
         }
     }
     // KMK <--
