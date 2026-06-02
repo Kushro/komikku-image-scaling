@@ -407,6 +407,10 @@ internal fun ColorFilterPage(screenModel: ReaderSettingsScreenModel) {
             label = stringResource(KMR.strings.reader_show_processing_status),
             pref = screenModel.preferences.realCuganShowStatus(),
         )
+        CheckboxItem(
+            label = stringResource(KMR.strings.reader_show_preloading_status),
+            pref = screenModel.preferences.realCuganShowPreloadStatus(),
+        )
     }
     // KMK <--
 }

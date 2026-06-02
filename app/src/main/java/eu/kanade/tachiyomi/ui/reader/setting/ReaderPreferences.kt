@@ -229,6 +229,7 @@ class ReaderPreferences(
     fun realCuganMaxSizeHeight() = preferenceStore.getInt("pref_realcugan_max_size_height", 1600)
     fun realCuganResizeLargeImage() = preferenceStore.getBoolean("pref_realcugan_resize_large_image", true)
     fun realCuganShowStatus() = preferenceStore.getBoolean("pref_realcugan_show_status", false)
+    fun realCuganShowPreloadStatus() = preferenceStore.getBoolean("pref_realcugan_show_preload_status", false)
     // Remote upscaler (routes images to a Python TUI server instead of local NCNN)
     fun remoteUpscalerHost() = preferenceStore.getString("pref_remote_upscaler_host", "")
     fun remoteUpscalerPort() = preferenceStore.getInt("pref_remote_upscaler_port", 8282)

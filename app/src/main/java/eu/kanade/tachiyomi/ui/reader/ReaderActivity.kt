@@ -28,6 +28,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -358,23 +359,47 @@ class ReaderActivity : BaseActivity() {
                     )
                 }
 
-                // KMK --> Processing status overlay (bottom-left corner)
+                // KMK --> Enhancement overlays (bottom-left corner): preloading status on top,
+                // processing status below it so the two never overlap.
                 val showProcessingStatus by readerPreferences.realCuganShowStatus().collectAsState()
-                if (showProcessingStatus && state.processingStatus != null) {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .navigationBarsPadding()
-                            .padding(start = 8.dp, bottom = 8.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        shape = RoundedCornerShape(4.dp),
-                    ) {
-                        Text(
-                            text = state.processingStatus!!,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                val preloadStatus = state.preloadStatus
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .navigationBarsPadding()
+                        .padding(start = 8.dp, bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (preloadStatus != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(4.dp),
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    KMR.strings.reader_preload_status,
+                                    preloadStatus.loaded,
+                                    preloadStatus.loading,
+                                    preloadStatus.max,
+                                ),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                    if (showProcessingStatus && state.processingStatus != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(4.dp),
+                        ) {
+                            Text(
+                                text = state.processingStatus!!,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
                 }
                 // KMK <--
