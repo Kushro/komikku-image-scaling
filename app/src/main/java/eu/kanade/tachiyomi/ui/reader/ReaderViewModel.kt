@@ -1126,6 +1126,12 @@ class ReaderViewModel @JvmOverloads constructor(
         mutableState.update { it.copy(menuVisible = visible) }
     }
 
+    // KMK -->
+    fun updateProcessingStatus(message: String?) {
+        mutableState.update { it.copy(processingStatus = message) }
+    }
+    // KMK <--
+
     // SY -->
     fun showEhUtils(visible: Boolean) {
         mutableState.update { it.copy(ehUtilsVisible = visible) }
@@ -1511,6 +1517,9 @@ class ReaderViewModel @JvmOverloads constructor(
         val isAutoScrollEnabled: Boolean = false,
         val ehAutoscrollFreq: String = "",
         // SY <--
+        // KMK -->
+        val processingStatus: String? = null,
+        // KMK <--
     ) {
         val currentChapter: ReaderChapter?
             get() = viewerChapters?.currChapter

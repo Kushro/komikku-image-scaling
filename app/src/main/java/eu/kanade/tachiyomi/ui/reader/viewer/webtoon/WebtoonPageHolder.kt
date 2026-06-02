@@ -1,6 +1,9 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 
 import android.content.res.Resources
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Build
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -19,6 +22,9 @@ import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.system.dpToPx
+import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
+import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.collectLatest
@@ -34,6 +40,7 @@ import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
+import java.io.ByteArrayOutputStream
 
 /**
  * Holder of the webtoon reader for a single page of a chapter.
@@ -84,6 +91,10 @@ class WebtoonPageHolder(
      */
     private var loadJob: Job? = null
 
+    // KMK --> Background remote enhancement job
+    private var remoteEnhanceJob: Job? = null
+    // KMK <--
+
     init {
         refreshLayoutParams()
 
@@ -120,7 +131,10 @@ class WebtoonPageHolder(
     override fun recycle() {
         loadJob?.cancel()
         loadJob = null
-
+        // KMK -->
+        remoteEnhanceJob?.cancel()
+        remoteEnhanceJob = null
+        // KMK <--
         removeErrorLayout()
         frame.recycle()
         progressIndicator.setProgress(0)
@@ -199,27 +213,134 @@ class WebtoonPageHolder(
                 val isAnimated = ImageUtil.isAnimatedAndSupported(source)
                 Pair(source, isAnimated)
             }
-            withUIContext {
-                frame.setImage(
-                    source,
-                    isAnimated,
-                    ReaderPageImageView.Config(
-                        zoomDuration = viewer.config.doubleTapAnimDuration,
-                        minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
-                        cropBorders =
-                        (viewer.config.imageCropBorders && viewer.isContinuous) ||
-                            (viewer.config.continuousCropBorders && !viewer.isContinuous),
-                        // KMK -->
-                        enhanced = viewer.activity.viewModel.readerPreferences.realCuganEnabled().get(),
-                        mangaId = page?.chapter?.chapter?.manga_id ?: -1L,
-                        chapterId = page?.chapter?.chapter?.id ?: -1L,
-                        pageIndex = page?.index ?: -1,
-                        alreadyUpscaled = page?.alreadyUpscaled ?: false,
-                        // KMK <--
-                    ),
+            // KMK --> Determine enhancement mode and handle remote "show original first"
+            val prefs = viewer.activity.viewModel.readerPreferences
+            val enhancementMode = prefs.enhancementMode().get()
+            val mangaId = page?.chapter?.chapter?.manga_id ?: -1L
+            val chapterId = page?.chapter?.chapter?.id ?: -1L
+            val pageIndex = page?.index ?: -1
+            val alreadyUpscaled = page?.alreadyUpscaled ?: false
+
+            val isRemoteMode = enhancementMode == 3 && !alreadyUpscaled
+
+            val cropBorders = (viewer.config.imageCropBorders && viewer.isContinuous) ||
+                (viewer.config.continuousCropBorders && !viewer.isContinuous)
+
+            if (isRemoteMode) {
+                val remoteHost = prefs.remoteUpscalerHost().get()
+                val remotePort = prefs.remoteUpscalerPort().get()
+                ImageEnhancementCache.init(frame.context)
+                val configHash = ImageEnhancementCache.getConfigHash(
+                    noise = 0,
+                    scale = 0,
+                    inputScale = 100,
+                    model = -1,
+                    maxWidth = 0,
+                    maxHeight = 0,
+                    resizeEnabled = false,
+                    remoteHash = "$remoteHost:$remotePort",
                 )
-                removeErrorLayout()
+                val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, pageIndex, configHash)
+
+                if (cachedFile != null) {
+                    val cachedSource = Buffer().readFrom(cachedFile.inputStream())
+                    withUIContext {
+                        frame.setImage(
+                            cachedSource,
+                            false,
+                            ReaderPageImageView.Config(
+                                zoomDuration = viewer.config.doubleTapAnimDuration,
+                                minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                                cropBorders = cropBorders,
+                                enhanced = false,
+                                mangaId = mangaId,
+                                chapterId = chapterId,
+                                pageIndex = pageIndex,
+                                alreadyUpscaled = true,
+                            ),
+                        )
+                        removeErrorLayout()
+                    }
+                } else {
+                    val sourceBytes = source.readByteArray()
+                    withUIContext {
+                        frame.setImage(
+                            Buffer().write(sourceBytes),
+                            isAnimated,
+                            ReaderPageImageView.Config(
+                                zoomDuration = viewer.config.doubleTapAnimDuration,
+                                minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                                cropBorders = cropBorders,
+                                enhanced = false,
+                                mangaId = mangaId,
+                                chapterId = chapterId,
+                                pageIndex = pageIndex,
+                                alreadyUpscaled = false,
+                            ),
+                        )
+                        removeErrorLayout()
+                    }
+                    remoteEnhanceJob?.cancel()
+                    remoteEnhanceJob = scope.launch(Dispatchers.IO) {
+                        try {
+                            val input = BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.size)
+                                ?: return@launch
+                            val enhanced = RemoteUpscaler.process(input, remoteHost, remotePort) { msg ->
+                                viewer.activity.viewModel.updateProcessingStatus(msg)
+                            }
+                            if (enhanced != null) {
+                                ImageEnhancementCache.saveToCache(mangaId, chapterId, pageIndex, configHash, enhanced)
+                                val baos = ByteArrayOutputStream()
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    enhanced.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, baos)
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    enhanced.compress(Bitmap.CompressFormat.WEBP, 90, baos)
+                                }
+                                withUIContext {
+                                    frame.setImage(
+                                        Buffer().write(baos.toByteArray()),
+                                        false,
+                                        ReaderPageImageView.Config(
+                                            zoomDuration = viewer.config.doubleTapAnimDuration,
+                                            minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                                            cropBorders = cropBorders,
+                                            enhanced = false,
+                                            mangaId = mangaId,
+                                            chapterId = chapterId,
+                                            pageIndex = pageIndex,
+                                            alreadyUpscaled = true,
+                                        ),
+                                    )
+                                }
+                            }
+                        } catch (e: Exception) {
+                            logcat(LogPriority.ERROR, e) { "WebtoonPageHolder: Remote enhancement failed for page $pageIndex" }
+                        } finally {
+                            viewer.activity.viewModel.updateProcessingStatus(null)
+                        }
+                    }
+                }
+            } else {
+                withUIContext {
+                    frame.setImage(
+                        source,
+                        isAnimated,
+                        ReaderPageImageView.Config(
+                            zoomDuration = viewer.config.doubleTapAnimDuration,
+                            minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                            cropBorders = cropBorders,
+                            enhanced = enhancementMode == 2,
+                            mangaId = mangaId,
+                            chapterId = chapterId,
+                            pageIndex = pageIndex,
+                            alreadyUpscaled = alreadyUpscaled,
+                        ),
+                    )
+                    removeErrorLayout()
+                }
             }
+            // KMK <--
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e)
             withUIContext {

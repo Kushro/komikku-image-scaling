@@ -37,12 +37,14 @@ object RemoteUpscaler {
      * @param input Original decoded bitmap (ARGB_8888)
      * @param host Server IP address (e.g. "192.168.1.42")
      * @param port Server port (e.g. 8282)
+     * @param onStatus Optional callback invoked with human-readable progress messages
      * @return Upscaled bitmap, or null on any failure
      */
     suspend fun process(
         input: Bitmap,
         host: String,
         port: Int,
+        onStatus: suspend (String) -> Unit = {},
     ): Bitmap? = withContext(Dispatchers.IO) {
         if (host.isBlank()) {
             Log.w(TAG, "Remote upscaler host is blank — skipping")
@@ -50,10 +52,14 @@ object RemoteUpscaler {
         }
 
         try {
+            onStatus("Connecting to $host:$port…")
+
             // 1. Encode bitmap to PNG bytes
             val baos = ByteArrayOutputStream()
             input.compress(Bitmap.CompressFormat.PNG, 100, baos)
             val imageBytes = baos.toByteArray()
+
+            onStatus("Uploading image (${imageBytes.size / 1024} KB)…")
 
             // 2. POST to remote server
             val body = imageBytes.toRequestBody("image/png".toMediaType())
@@ -63,26 +69,66 @@ object RemoteUpscaler {
                 .build()
 
             val response = client.newCall(request).execute()
+
+            onStatus("Processing on server…")
+
             if (!response.isSuccessful) {
                 Log.e(TAG, "Remote upscaler returned HTTP ${response.code}")
+                onStatus("Server error: HTTP ${response.code}")
                 return@withContext null
             }
+
+            onStatus("Downloading result…")
 
             // 3. Decode response as bitmap
             val responseBody = response.body!!.bytes()
             val options = BitmapFactory.Options().apply {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-            BitmapFactory.decodeByteArray(responseBody, 0, responseBody.size, options)
+            val result = BitmapFactory.decodeByteArray(responseBody, 0, responseBody.size, options)
+            if (result != null) onStatus("Enhancement complete")
+            result
         } catch (e: ConnectException) {
             Log.e(TAG, "Cannot connect to remote upscaler at $host:$port — is the server running?")
+            onStatus("Connection failed — is the server running?")
             null
         } catch (e: SocketTimeoutException) {
             Log.e(TAG, "Remote upscaler timed out for $host:$port")
+            onStatus("Server timed out")
             null
         } catch (e: Exception) {
             Log.e(TAG, "Remote upscaler failed: ${e.message}", e)
+            onStatus("Remote enhancement failed")
             null
+        }
+    }
+
+    /**
+     * Check if the remote upscaler server is alive.
+     *
+     * @return true if server responds with 200 OK, false otherwise
+     */
+    suspend fun checkHealth(host: String, port: Int): Boolean = withContext(Dispatchers.IO) {
+        if (host.isBlank()) return@withContext false
+        try {
+            val request = Request.Builder()
+                .url("http://$host:$port/health")
+                .get()
+                .build()
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) return@withContext true
+            // Fall back to /status if /health is not found (older server)
+            if (response.code == 404) {
+                val statusRequest = Request.Builder()
+                    .url("http://$host:$port/status")
+                    .get()
+                    .build()
+                return@withContext client.newCall(statusRequest).execute().isSuccessful
+            }
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "Health check failed for $host:$port — ${e.message}")
+            false
         }
     }
 

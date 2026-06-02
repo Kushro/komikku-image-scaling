@@ -244,4 +244,17 @@ object ImageEnhancementCache {
             android.util.Log.e("ImageEnhancementCache", "Failed to trim cache", e)
         }
     }
+
+    /**
+     * Delete all cached files for a chapter that match a specific config hash.
+     * Used by "Force re-upscale" to invalidate remote-enhanced images after server model changes.
+     */
+    fun clearForChapter(mangaId: Long, chapterId: Long, configHash: String) {
+        val dir = cacheDir ?: return
+        val chapterDir = File(dir, "$mangaId/$chapterId")
+        if (!chapterDir.isDirectory) return
+        chapterDir.listFiles()
+            ?.filter { it.name.contains(configHash) }
+            ?.forEach { it.delete() }
+    }
 }

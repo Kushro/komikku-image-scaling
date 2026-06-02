@@ -272,4 +272,21 @@
     <string name="reader_remote_upscaler_host">Server IP address</string>
     <string name="reader_remote_upscaler_port">Server port</string>
     <string name="reader_remote_upscaler_model_info">Model is configured on the server. Use the KomikkUP Upscaler TUI app to select and change models.</string>
+    <!-- Enhancement mode selection -->
+    <string name="reader_enhancement_mode">Enhancement mode</string>
+    <string name="reader_enhancement_none">Do not enhance</string>
+    <string name="reader_enhancement_download_only">Enhance only on download</string>
+    <string name="reader_enhancement_live">Live enhance</string>
+    <string name="reader_enhancement_remote">Remote Enhance</string>
+    <string name="reader_check_connection">Check connection</string>
+    <string name="reader_force_reupscale">Force re-upscale on server</string>
+    <string name="reader_force_reupscale_summary">Clears local cache for this chapter so images are re-sent to the server. Useful after changing the server model.</string>
+    <string name="reader_remote_model_active">Active model: %1$s</string>
+    <!-- Remote status messages -->
+    <string name="reader_remote_status_connecting">Connecting to server…</string>
+    <string name="reader_remote_status_uploading">Uploading image…</string>
+    <string name="reader_remote_status_processing">Processing on server…</string>
+    <string name="reader_remote_status_downloading">Downloading result…</string>
+    <string name="reader_remote_status_done">Enhancement complete</string>
+    <string name="reader_remote_status_failed">Remote enhancement failed</string>
 </resources>

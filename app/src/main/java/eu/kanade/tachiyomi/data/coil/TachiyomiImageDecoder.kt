@@ -142,7 +142,8 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                     if (mangaId != -1L && chapterId != -1L && pageIndex != -1) {
                         ImageEnhancementCache.init(context)
 
-                        val isRemoteUpscaler = preferences.remoteUpscalerEnabled().get()
+                        val enhancementMode = preferences.enhancementMode().get()
+                        val isRemoteUpscaler = enhancementMode == 3
                         val configHash = if (isRemoteUpscaler) {
                             val remoteHost = preferences.remoteUpscalerHost().get()
                             val remotePort = preferences.remoteUpscalerPort().get()
@@ -219,7 +220,7 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                     logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Remote upscaler failed" }
                                 }
                             }
-                        } else if (preferences.realCuganEnabled().get()) {
+                        } else if (enhancementMode == 2) {
                             try {
                                 val model = preferences.realCuganModel().get()
                                 val noise = preferences.realCuganNoiseLevel().get()

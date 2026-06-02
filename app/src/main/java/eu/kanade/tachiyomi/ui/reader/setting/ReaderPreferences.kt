@@ -213,6 +213,8 @@ class ReaderPreferences(
 
     // KMK -->
     // Image enhancement (upscaling)
+    // Enhancement mode: 0=NONE, 1=DOWNLOAD_ONLY, 2=LIVE_LOCAL, 3=REMOTE
+    fun enhancementMode() = preferenceStore.getInt("pref_enhancement_mode", 0)
     fun realCuganEnabled() = preferenceStore.getBoolean("pref_realCugan_enabled", false)
     fun realCuganNoiseLevel() = preferenceStore.getInt("pref_realcugan_noise_level", 0)
     fun realCuganScale() = preferenceStore.getInt("pref_realcugan_scale", 2)
