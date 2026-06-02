@@ -267,4 +267,9 @@
     <string name="reader_status_enhancing_progress">ENHANCING... %1$d%%</string>
     <string name="reader_enhance_on_download">Enhance on download</string>
     <string name="reader_enhance_on_download_summary">Upscale images during download so they don\'t need processing when reading</string>
+    <!-- Remote Upscaler -->
+    <string name="reader_remote_upscaler_enabled">Use remote upscaler</string>
+    <string name="reader_remote_upscaler_host">Server IP address</string>
+    <string name="reader_remote_upscaler_port">Server port</string>
+    <string name="reader_remote_upscaler_model_info">Model is configured on the server. Use the KomikkUP Upscaler TUI app to select and change models.</string>
 </resources>

@@ -225,6 +225,10 @@ class ReaderPreferences(
     fun realCuganMaxSizeHeight() = preferenceStore.getInt("pref_realcugan_max_size_height", 1600)
     fun realCuganResizeLargeImage() = preferenceStore.getBoolean("pref_realcugan_resize_large_image", true)
     fun realCuganShowStatus() = preferenceStore.getBoolean("pref_realcugan_show_status", false)
+    // Remote upscaler (routes images to a Python TUI server instead of local NCNN)
+    fun remoteUpscalerEnabled() = preferenceStore.getBoolean("pref_remote_upscaler_enabled", false)
+    fun remoteUpscalerHost() = preferenceStore.getString("pref_remote_upscaler_host", "")
+    fun remoteUpscalerPort() = preferenceStore.getInt("pref_remote_upscaler_port", 8282)
     // KMK -->
     fun enhanceOnDownload() = preferenceStore.getBoolean("pref_enhance_on_download", false)
     // KMK <--

@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.image.ImageFilter
 import eu.kanade.tachiyomi.util.system.GLUtil
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
+import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
 import eu.kanade.tachiyomi.util.waifu2x.Waifu2x
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -133,27 +134,47 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                 // KMK --> Enhancement Integration
                 if (options.enhanced && !options.alreadyUpscaled) {
                     val preferences = Injekt.get<ReaderPreferences>()
-                    if (preferences.realCuganEnabled().get()) {
-                        val mangaId = options.mangaId
-                        val chapterId = options.chapterId
-                        val pageIndex = options.pageIndex
-                        val pageVariant = options.pageVariant
+                    val mangaId = options.mangaId
+                    val chapterId = options.chapterId
+                    val pageIndex = options.pageIndex
+                    val pageVariant = options.pageVariant
 
-                        if (mangaId != -1L && chapterId != -1L && pageIndex != -1) {
-                            ImageEnhancementCache.init(context)
+                    if (mangaId != -1L && chapterId != -1L && pageIndex != -1) {
+                        ImageEnhancementCache.init(context)
 
-                            val configHash = ImageEnhancementCache.getConfigHash(
-                                preferences.realCuganNoiseLevel().get(),
-                                preferences.realCuganScale().get(),
-                                preferences.realCuganInputScale().get(),
-                                preferences.realCuganModel().get(),
-                                preferences.realCuganMaxSizeWidth().get(),
-                                preferences.realCuganMaxSizeHeight().get(),
-                                true,
+                        val isRemoteUpscaler = preferences.remoteUpscalerEnabled().get()
+                        val configHash = if (isRemoteUpscaler) {
+                            val remoteHost = preferences.remoteUpscalerHost().get()
+                            val remotePort = preferences.remoteUpscalerPort().get()
+                            ImageEnhancementCache.getConfigHash(
+                                noise = 0,
+                                scale = 0,
+                                inputScale = 100,
+                                model = -1,
+                                maxWidth = 0,
+                                maxHeight = 0,
+                                resizeEnabled = false,
+                                remoteHash = "$remoteHost:$remotePort",
                             )
+                        } else {
+                            ImageEnhancementCache.getConfigHash(
+                                noise = preferences.realCuganNoiseLevel().get(),
+                                scale = preferences.realCuganScale().get(),
+                                inputScale = 100,
+                                model = preferences.realCuganModel().get(),
+                                maxWidth = preferences.realCuganMaxSizeWidth().get(),
+                                maxHeight = preferences.realCuganMaxSizeHeight().get(),
+                                resizeEnabled = preferences.realCuganResizeLargeImage().get(),
+                            )
+                        }
 
-                            // Check cache first
-                            var usedCache = false
+                        // KMK --> Remote upscaler branch — routes images to a Python TUI server
+                        if (isRemoteUpscaler) {
+                            val remoteHost = preferences.remoteUpscalerHost().get()
+                            val remotePort = preferences.remoteUpscalerPort().get()
+
+                            // Check cache first (same cache path as local mode)
+                            var usedRemoteCache = false
                             val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, pageIndex, configHash, pageVariant)
                             if (cachedFile != null) {
                                 try {
@@ -161,125 +182,154 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                     if (cachedBitmap != null) {
                                         bitmap.recycle()
                                         bitmap = cachedBitmap
-                                        usedCache = true
+                                        usedRemoteCache = true
                                     }
                                 } catch (e: Exception) {
-                                    logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Failed to decode cached enhanced image" }
+                                    logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Failed to decode cached remote-enhanced image" }
                                 }
                             }
 
-                            if (!usedCache) {
+                            if (!usedRemoteCache) {
                                 try {
-                                    val model = preferences.realCuganModel().get()
-                                    val noise = preferences.realCuganNoiseLevel().get()
-                                    var scale = preferences.realCuganScale().get()
+                                    val result = RemoteUpscaler.process(bitmap, remoteHost, remotePort)
+                                    if (result != null) {
+                                        var enhanced = result
 
-                                    // Target Resolution Check / Prescale
-                                    val maxWidth = preferences.realCuganMaxSizeWidth().get()
-                                    val maxHeight = preferences.realCuganMaxSizeHeight().get()
-                                    val shouldResize = preferences.realCuganResizeLargeImage().get()
-                                    var shouldSkipEnhancement = false
-
-                                    val targetWidth = if (maxWidth > 0) maxWidth else Int.MAX_VALUE
-                                    val targetHeight = if (maxHeight > 0) maxHeight else Int.MAX_VALUE
-                                    val hasTargetResolution = maxWidth > 0 || maxHeight > 0
-                                    val exceedsLimit = hasTargetResolution &&
-                                        (bitmap.width > targetWidth || bitmap.height > targetHeight)
-
-                                    if (exceedsLimit && !shouldResize) {
-                                        ImageEnhancementCache.saveSkippedToCache(mangaId, chapterId, pageIndex, configHash, pageVariant)
-                                        shouldSkipEnhancement = true
-                                    } else if (exceedsLimit) {
-                                        ImageEnhancementCache.saveSkippedToCache(mangaId, chapterId, pageIndex, configHash, pageVariant)
-                                        shouldSkipEnhancement = true
-                                    }
-
-                                    // Performance Mode
-                                    val perfMode = preferences.realCuganPerformanceMode().get()
-                                    val tileSleepMs = when (perfMode) {
-                                        1, 2 -> 15
-                                        else -> 0
-                                    }
-                                    val tileSize = when (perfMode) {
-                                        1 -> 96
-                                        2 -> 64
-                                        else -> 128
-                                    }
-
-                                    // Validate scale based on model capabilities
-                                    val effectiveScale = when (model) {
-                                        3 -> 2 // Nose: fixed 2x
-                                        5 -> 2 // Waifu2x Upconv7: only supports 2x
-                                        else -> scale
-                                    }
-
-                                    if (!shouldSkipEnhancement && hasTargetResolution) {
-                                        val finalWidthAtScale = bitmap.width * effectiveScale.toFloat()
-                                        val finalHeightAtScale = bitmap.height * effectiveScale.toFloat()
-                                        val ratio = min(
-                                            targetWidth / finalWidthAtScale,
-                                            targetHeight / finalHeightAtScale,
-                                        )
-
-                                        if (ratio in 0f..<1f) {
-                                            val newWidth = max(1, (bitmap.width * ratio).roundToInt())
-                                            val newHeight = max(1, (bitmap.height * ratio).roundToInt())
-                                            val scaledBitmap = nativeScaleBitmap(bitmap, newWidth, newHeight)
-                                            if (scaledBitmap != bitmap) {
-                                                bitmap.recycle()
-                                                bitmap = scaledBitmap
+                                        // Output resolution limit (same as local path)
+                                        val textureLimit = GLUtil.DEVICE_TEXTURE_LIMIT
+                                        if (enhanced.width > textureLimit || enhanced.height > textureLimit) {
+                                            val widthRatio = textureLimit.toFloat() / enhanced.width
+                                            val heightRatio = textureLimit.toFloat() / enhanced.height
+                                            val downscaleRatio = Math.min(widthRatio, heightRatio)
+                                            val newWidth = (enhanced.width * downscaleRatio).toInt().coerceAtLeast(1)
+                                            val newHeight = (enhanced.height * downscaleRatio).toInt().coerceAtLeast(1)
+                                            val downscaled = nativeScaleBitmap(enhanced, newWidth, newHeight)
+                                            if (downscaled != enhanced) {
+                                                enhanced.recycle()
+                                                enhanced = downscaled
                                             }
                                         }
+
+                                        ImageEnhancementCache.saveToCache(mangaId, chapterId, pageIndex, configHash, enhanced, pageVariant)
+                                        if (bitmap != enhanced) bitmap.recycle()
+                                        bitmap = enhanced
                                     }
-
-                                    if (!shouldSkipEnhancement) {
-                                        val initialized = when (model) {
-                                            0 -> Waifu2x.initRealCugan(context, noise, effectiveScale, isPro = false, tileSleepMs = tileSleepMs, tileSize = tileSize)
-                                            1 -> Waifu2x.initRealCugan(context, noise, effectiveScale, isPro = true, tileSleepMs = tileSleepMs, tileSize = tileSize)
-                                            2 -> Waifu2x.initRealESRGAN(context, effectiveScale, tileSleepMs = tileSleepMs, tileSize = tileSize)
-                                            3 -> Waifu2x.initNose(context, tileSleepMs = tileSleepMs, tileSize = tileSize)
-                                            4 -> Waifu2x.initWaifu2x(context, noise, effectiveScale, tileSleepMs = tileSleepMs, tileSize = tileSize)
-                                            5 -> Waifu2x.initWaifu2xUpconv7(context, noise, effectiveScale, tileSleepMs = tileSleepMs, tileSize = tileSize)
-                                            else -> Waifu2x.initRealCugan(context, noise, effectiveScale, tileSleepMs = tileSleepMs, tileSize = tileSize)
-                                        }
-
-                                        if (initialized) {
-                                            val processed = when (model) {
-                                                0, 1 -> Waifu2x.processRealCugan(bitmap, pageIndex)
-                                                2 -> Waifu2x.processRealESRGAN(bitmap, pageIndex)
-                                                3 -> Waifu2x.processNose(bitmap, pageIndex)
-                                                4, 5 -> Waifu2x.processWaifu2x(bitmap, pageIndex)
-                                                else -> Waifu2x.processRealCugan(bitmap, pageIndex)
-                                            }
-
-                                            if (processed != null) {
-                                                var result = ImageFilter.applyInkFilterIfEnabled(processed, Injekt.get())
-
-                                                // Output resolution limit (prevent Canvas errors)
-                                                val textureLimit = GLUtil.DEVICE_TEXTURE_LIMIT
-                                                if (result.width > textureLimit || result.height > textureLimit) {
-                                                    val widthRatio = textureLimit.toFloat() / result.width
-                                                    val heightRatio = textureLimit.toFloat() / result.height
-                                                    val downscaleRatio = Math.min(widthRatio, heightRatio)
-
-                                                    val newWidth = (result.width * downscaleRatio).toInt().coerceAtLeast(1)
-                                                    val newHeight = (result.height * downscaleRatio).toInt().coerceAtLeast(1)
-                                                    val downscaled = nativeScaleBitmap(result, newWidth, newHeight)
-                                                    if (downscaled != result) {
-                                                        result.recycle()
-                                                        result = downscaled
-                                                    }
-                                                }
-
-                                                ImageEnhancementCache.saveToCache(mangaId, chapterId, pageIndex, configHash, result, pageVariant)
-                                                if (bitmap != result) bitmap.recycle()
-                                                bitmap = result
-                                            }
-                                        }
-                                    }
+                                    // If remote returns null, keep original bitmap unenhanced
                                 } catch (e: Exception) {
-                                    logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Failed to enhance image on-the-fly" }
+                                    logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Remote upscaler failed" }
                                 }
+                            }
+                        } else if (preferences.realCuganEnabled().get()) {
+                            try {
+                                val model = preferences.realCuganModel().get()
+                                val noise = preferences.realCuganNoiseLevel().get()
+                                var scale = preferences.realCuganScale().get()
+
+                                // Target Resolution Check / Prescale
+                                val maxWidth = preferences.realCuganMaxSizeWidth().get()
+                                val maxHeight = preferences.realCuganMaxSizeHeight().get()
+                                val shouldResize = preferences.realCuganResizeLargeImage().get()
+                                var shouldSkipEnhancement = false
+
+                                val targetWidth = if (maxWidth > 0) maxWidth else Int.MAX_VALUE
+                                val targetHeight = if (maxHeight > 0) maxHeight else Int.MAX_VALUE
+                                val hasTargetResolution = maxWidth > 0 || maxHeight > 0
+                                val exceedsLimit = hasTargetResolution &&
+                                    (bitmap.width > targetWidth || bitmap.height > targetHeight)
+
+                                if (exceedsLimit && !shouldResize) {
+                                    ImageEnhancementCache.saveSkippedToCache(mangaId, chapterId, pageIndex, configHash, pageVariant)
+                                    shouldSkipEnhancement = true
+                                } else if (exceedsLimit) {
+                                    ImageEnhancementCache.saveSkippedToCache(mangaId, chapterId, pageIndex, configHash, pageVariant)
+                                    shouldSkipEnhancement = true
+                                }
+
+                                // Performance Mode
+                                val perfMode = preferences.realCuganPerformanceMode().get()
+                                val tileSleepMs = when (perfMode) {
+                                    1, 2 -> 15
+                                    else -> 0
+                                }
+                                val tileSize = when (perfMode) {
+                                    1 -> 96
+                                    2 -> 64
+                                    else -> 128
+                                }
+
+                                // Validate scale based on model capabilities
+                                val effectiveScale = when (model) {
+                                    3 -> 2 // Nose: fixed 2x
+                                    5 -> 2 // Waifu2x Upconv7: only supports 2x
+                                    else -> scale
+                                }
+
+                                if (!shouldSkipEnhancement && hasTargetResolution) {
+                                    val finalWidthAtScale = bitmap.width * effectiveScale.toFloat()
+                                    val finalHeightAtScale = bitmap.height * effectiveScale.toFloat()
+                                    val ratio = min(
+                                        targetWidth / finalWidthAtScale,
+                                        targetHeight / finalHeightAtScale,
+                                    )
+
+                                    if (ratio in 0f..<1f) {
+                                        val newWidth = max(1, (bitmap.width * ratio).roundToInt())
+                                        val newHeight = max(1, (bitmap.height * ratio).roundToInt())
+                                        val scaledBitmap = nativeScaleBitmap(bitmap, newWidth, newHeight)
+                                        if (scaledBitmap != bitmap) {
+                                            bitmap.recycle()
+                                            bitmap = scaledBitmap
+                                        }
+                                    }
+                                }
+
+                                if (!shouldSkipEnhancement) {
+                                    val initialized = when (model) {
+                                        0 -> Waifu2x.initRealCugan(context, noise, effectiveScale, isPro = false, tileSleepMs = tileSleepMs, tileSize = tileSize)
+                                        1 -> Waifu2x.initRealCugan(context, noise, effectiveScale, isPro = true, tileSleepMs = tileSleepMs, tileSize = tileSize)
+                                        2 -> Waifu2x.initRealESRGAN(context, effectiveScale, tileSleepMs = tileSleepMs, tileSize = tileSize)
+                                        3 -> Waifu2x.initNose(context, tileSleepMs = tileSleepMs, tileSize = tileSize)
+                                        4 -> Waifu2x.initWaifu2x(context, noise, effectiveScale, tileSleepMs = tileSleepMs, tileSize = tileSize)
+                                        5 -> Waifu2x.initWaifu2xUpconv7(context, noise, effectiveScale, tileSleepMs = tileSleepMs, tileSize = tileSize)
+                                        else -> Waifu2x.initRealCugan(context, noise, effectiveScale, tileSleepMs = tileSleepMs, tileSize = tileSize)
+                                    }
+
+                                    if (initialized) {
+                                        val processed = when (model) {
+                                            0, 1 -> Waifu2x.processRealCugan(bitmap, pageIndex)
+                                            2 -> Waifu2x.processRealESRGAN(bitmap, pageIndex)
+                                            3 -> Waifu2x.processNose(bitmap, pageIndex)
+                                            4, 5 -> Waifu2x.processWaifu2x(bitmap, pageIndex)
+                                            else -> Waifu2x.processRealCugan(bitmap, pageIndex)
+                                        }
+
+                                        if (processed != null) {
+                                            var result = ImageFilter.applyInkFilterIfEnabled(processed, Injekt.get())
+
+                                            // Output resolution limit (prevent Canvas errors)
+                                            val textureLimit = GLUtil.DEVICE_TEXTURE_LIMIT
+                                            if (result.width > textureLimit || result.height > textureLimit) {
+                                                val widthRatio = textureLimit.toFloat() / result.width
+                                                val heightRatio = textureLimit.toFloat() / result.height
+                                                val downscaleRatio = Math.min(widthRatio, heightRatio)
+
+                                                val newWidth = (result.width * downscaleRatio).toInt().coerceAtLeast(1)
+                                                val newHeight = (result.height * downscaleRatio).toInt().coerceAtLeast(1)
+                                                val downscaled = nativeScaleBitmap(result, newWidth, newHeight)
+                                                if (downscaled != result) {
+                                                    result.recycle()
+                                                    result = downscaled
+                                                }
+                                            }
+
+                                            ImageEnhancementCache.saveToCache(mangaId, chapterId, pageIndex, configHash, result, pageVariant)
+                                            if (bitmap != result) bitmap.recycle()
+                                            bitmap = result
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Failed to enhance image on-the-fly" }
                             }
                         }
                     }
