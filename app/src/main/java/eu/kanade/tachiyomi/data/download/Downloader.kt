@@ -99,9 +99,12 @@ class Downloader(
      */
     private val store = DownloadStore(context)
 
-    // KMK --> Whether to enhance images during download
+    // KMK --> Whether to enhance images during download (mode 1=DOWNLOAD_ONLY, 2=LIVE_LOCAL both enhance on download)
     private val enhanceOnDownload: Boolean
-        get() = readerPreferences.realCuganEnabled().get() && readerPreferences.enhanceOnDownload().get()
+        get() {
+            val mode = readerPreferences.enhancementMode().get()
+            return mode == 1 || mode == 2
+        }
     // KMK <--
 
     /**

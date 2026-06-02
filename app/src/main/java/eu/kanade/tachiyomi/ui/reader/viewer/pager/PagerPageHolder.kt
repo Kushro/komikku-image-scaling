@@ -3,6 +3,8 @@ package eu.kanade.tachiyomi.ui.reader.viewer.pager
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Build
 import android.view.LayoutInflater
 import androidx.annotation.ColorInt
 import androidx.core.view.isVisible
@@ -15,7 +17,10 @@ import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
+import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
+import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
@@ -33,6 +38,7 @@ import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.decoder.ImageDecoder
 import tachiyomi.i18n.MR
+import java.io.ByteArrayOutputStream
 import kotlin.math.max
 
 /**
@@ -77,6 +83,10 @@ class PagerPageHolder(
      */
     private var extraLoadJob: Job? = null
 
+    // KMK --> Background remote enhancement job (show original first, then replace with enhanced)
+    private var remoteEnhanceJob: Job? = null
+    // KMK <--
+
     init {
         loadJob = scope.launch { loadPageAndProcessStatus(1) }
         // SY -->
@@ -93,6 +103,10 @@ class PagerPageHolder(
         loadJob = null
         extraLoadJob?.cancel()
         extraLoadJob = null
+        // KMK -->
+        remoteEnhanceJob?.cancel()
+        remoteEnhanceJob = null
+        // KMK <--
     }
 
     private fun initProgressIndicator() {
@@ -207,33 +221,152 @@ class PagerPageHolder(
                     }
                 }
             }
-            withUIContext {
-                setImage(
-                    source,
-                    isAnimated,
-                    Config(
-                        zoomDuration = viewer.config.doubleTapAnimDuration,
-                        minimumScaleType = viewer.config.imageScaleType,
-                        cropBorders = viewer.config.imageCropBorders,
-                        zoomStartPosition = viewer.config.imageZoomType,
-                        landscapeZoom = viewer.config.landscapeZoom,
-                        // KMK -->
-                        disableZoomIn = viewer.config.disableZoomIn,
-                        doubleTapZoom = viewer.config.doubleTapZoom,
-                        landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
-                        enhanced = viewer.activity.viewModel.readerPreferences.realCuganEnabled().get(),
-                        mangaId = page.chapter.chapter.manga_id ?: -1L,
-                        chapterId = page.chapter.chapter.id ?: -1L,
-                        pageIndex = page.index,
-                        alreadyUpscaled = page.alreadyUpscaled,
-                        // KMK <--
-                    ),
+            // KMK --> Determine enhancement mode and handle remote "show original first"
+            val prefs = viewer.activity.viewModel.readerPreferences
+            val enhancementMode = prefs.enhancementMode().get()
+            val mangaId = page.chapter.chapter.manga_id ?: -1L
+            val chapterId = page.chapter.chapter.id ?: -1L
+
+            val isRemoteMode = enhancementMode == 3 && !page.alreadyUpscaled && extraPage == null
+
+            if (isRemoteMode) {
+                val remoteHost = prefs.remoteUpscalerHost().get()
+                val remotePort = prefs.remoteUpscalerPort().get()
+                ImageEnhancementCache.init(context)
+                val configHash = ImageEnhancementCache.getConfigHash(
+                    noise = 0, scale = 0, inputScale = 100, model = -1,
+                    maxWidth = 0, maxHeight = 0, resizeEnabled = false,
+                    remoteHash = "$remoteHost:$remotePort",
                 )
-                if (!isAnimated) {
-                    pageBackground = background
+                val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, page.index, configHash)
+
+                if (cachedFile != null) {
+                    // Fast path: serve from cache immediately (no original flash)
+                    val cachedSource = Buffer().readFrom(cachedFile.inputStream())
+                    withUIContext {
+                        setImage(
+                            cachedSource,
+                            false,
+                            Config(
+                                zoomDuration = viewer.config.doubleTapAnimDuration,
+                                minimumScaleType = viewer.config.imageScaleType,
+                                cropBorders = viewer.config.imageCropBorders,
+                                zoomStartPosition = viewer.config.imageZoomType,
+                                landscapeZoom = viewer.config.landscapeZoom,
+                                disableZoomIn = viewer.config.disableZoomIn,
+                                doubleTapZoom = viewer.config.doubleTapZoom,
+                                landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
+                                enhanced = false,
+                                mangaId = mangaId,
+                                chapterId = chapterId,
+                                pageIndex = page.index,
+                                alreadyUpscaled = true,
+                            ),
+                        )
+                        if (!isAnimated) pageBackground = background
+                        removeErrorLayout()
+                    }
+                } else {
+                    // Phase 1: Show original immediately, save bytes for background job
+                    val sourceBytes = source.readByteArray()
+                    withUIContext {
+                        setImage(
+                            Buffer().write(sourceBytes),
+                            isAnimated,
+                            Config(
+                                zoomDuration = viewer.config.doubleTapAnimDuration,
+                                minimumScaleType = viewer.config.imageScaleType,
+                                cropBorders = viewer.config.imageCropBorders,
+                                zoomStartPosition = viewer.config.imageZoomType,
+                                landscapeZoom = viewer.config.landscapeZoom,
+                                disableZoomIn = viewer.config.disableZoomIn,
+                                doubleTapZoom = viewer.config.doubleTapZoom,
+                                landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
+                                enhanced = false,
+                                mangaId = mangaId,
+                                chapterId = chapterId,
+                                pageIndex = page.index,
+                                alreadyUpscaled = false,
+                            ),
+                        )
+                        if (!isAnimated) pageBackground = background
+                        removeErrorLayout()
+                    }
+                    // Phase 2: Enhance in background, replace display when done
+                    remoteEnhanceJob?.cancel()
+                    remoteEnhanceJob = scope.launch(Dispatchers.IO) {
+                        try {
+                            val input = BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.size)
+                                ?: return@launch
+                            val enhanced = RemoteUpscaler.process(input, remoteHost, remotePort) { msg ->
+                                viewer.activity.viewModel.updateProcessingStatus(msg)
+                            }
+                            if (enhanced != null) {
+                                ImageEnhancementCache.saveToCache(mangaId, chapterId, page.index, configHash, enhanced)
+                                val baos = ByteArrayOutputStream()
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    enhanced.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, baos)
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    enhanced.compress(Bitmap.CompressFormat.WEBP, 90, baos)
+                                }
+                                withUIContext {
+                                    setImage(
+                                        Buffer().write(baos.toByteArray()),
+                                        false,
+                                        Config(
+                                            zoomDuration = viewer.config.doubleTapAnimDuration,
+                                            minimumScaleType = viewer.config.imageScaleType,
+                                            cropBorders = viewer.config.imageCropBorders,
+                                            zoomStartPosition = viewer.config.imageZoomType,
+                                            landscapeZoom = viewer.config.landscapeZoom,
+                                            disableZoomIn = viewer.config.disableZoomIn,
+                                            doubleTapZoom = viewer.config.doubleTapZoom,
+                                            landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
+                                            enhanced = false,
+                                            mangaId = mangaId,
+                                            chapterId = chapterId,
+                                            pageIndex = page.index,
+                                            alreadyUpscaled = true,
+                                        ),
+                                    )
+                                }
+                            }
+                        } catch (e: Exception) {
+                            logcat(LogPriority.ERROR, e) { "PagerPageHolder: Remote enhancement failed for page ${page.index}" }
+                        } finally {
+                            viewer.activity.viewModel.updateProcessingStatus(null)
+                        }
+                    }
                 }
-                removeErrorLayout()
+            } else {
+                withUIContext {
+                    setImage(
+                        source,
+                        isAnimated,
+                        Config(
+                            zoomDuration = viewer.config.doubleTapAnimDuration,
+                            minimumScaleType = viewer.config.imageScaleType,
+                            cropBorders = viewer.config.imageCropBorders,
+                            zoomStartPosition = viewer.config.imageZoomType,
+                            landscapeZoom = viewer.config.landscapeZoom,
+                            disableZoomIn = viewer.config.disableZoomIn,
+                            doubleTapZoom = viewer.config.doubleTapZoom,
+                            landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
+                            enhanced = enhancementMode == 2,
+                            mangaId = mangaId,
+                            chapterId = chapterId,
+                            pageIndex = page.index,
+                            alreadyUpscaled = page.alreadyUpscaled,
+                        ),
+                    )
+                    if (!isAnimated) {
+                        pageBackground = background
+                    }
+                    removeErrorLayout()
+                }
             }
+            // KMK <--
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e)
             withUIContext {

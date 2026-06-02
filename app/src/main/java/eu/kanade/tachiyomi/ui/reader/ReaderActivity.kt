@@ -31,6 +31,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -346,6 +349,27 @@ class ReaderActivity : BaseActivity() {
                             .navigationBarsPadding(),
                     )
                 }
+
+                // KMK --> Processing status overlay (bottom-left corner)
+                val showProcessingStatus by readerPreferences.realCuganShowStatus().collectAsState()
+                if (showProcessingStatus && state.processingStatus != null) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .navigationBarsPadding()
+                            .padding(start = 8.dp, bottom = 8.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(4.dp),
+                    ) {
+                        Text(
+                            text = state.processingStatus!!,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+                // KMK <--
 
                 ContentOverlay(state = state)
 
