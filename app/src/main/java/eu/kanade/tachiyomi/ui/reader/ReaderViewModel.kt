@@ -60,6 +60,7 @@ import exh.util.defaultReaderType
 import exh.util.mangaType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -716,6 +717,8 @@ class ReaderViewModel @JvmOverloads constructor(
     }
 
     // KMK -->
+    private var prefetchJob: Job? = null
+
     /**
      * Enqueues the current page and the next [ReaderPreferences.realCuganPreloadSize] pages for
      * background enhancement (on-device or remote), so they are cached before the user reaches them.
@@ -730,13 +733,25 @@ class ReaderViewModel @JvmOverloads constructor(
 
         ImageEnhancer.reprioritizeAround(currentPage.index)
 
+        // Cancel any in-flight prefetch from a previous page so stale waiters don't pile up.
+        prefetchJob?.cancel()
+
         val count = readerPreferences.realCuganPreloadSize().get()
         // Reading each page's source stream is blocking IO, so build/enqueue requests off the main thread.
-        viewModelScope.launchIO {
+        prefetchJob = viewModelScope.launchIO {
             val context = Injekt.get<Application>()
             for (offset in 0..count) {
                 val target = pages.getOrNull(currentIndex + offset) ?: break
-                if (target.alreadyUpscaled || target.status != Page.State.Ready) continue
+                if (target.alreadyUpscaled) continue
+
+                // Pages ahead load asynchronously; rather than skip ones that aren't loaded yet,
+                // wait for each to reach Ready (or fail) so the whole window gets enhanced — not
+                // just the page(s) that happened to be loaded when the page changed.
+                val state = target.statusFlow.first {
+                    it == Page.State.Ready || it is Page.State.Error
+                }
+                if (state != Page.State.Ready) continue
+
                 // Enqueue the focused page as high priority so the queue's initial-target gate opens.
                 ImageEnhancer.enhance(context, target, highPriority = offset == 0)
             }
