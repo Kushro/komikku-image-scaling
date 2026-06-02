@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.image.ImageFilter
 import eu.kanade.tachiyomi.util.system.GLUtil
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
+import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
 import eu.kanade.tachiyomi.util.waifu2x.Waifu2x
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,6 +42,11 @@ object DownloadEnhancer {
         preferences: ReaderPreferences,
         pageIndex: Int,
     ): Boolean = withContext(Dispatchers.IO) {
+        // KMK --> Remote mode: upscale the file via the server instead of the local NCNN models.
+        if (preferences.enhancementMode().get() == 3) {
+            return@withContext enhanceImageRemote(imageFile, preferences)
+        }
+        // KMK <--
         try {
             val model = preferences.realCuganModel().get()
             val noise = preferences.realCuganNoiseLevel().get()
@@ -153,6 +159,58 @@ object DownloadEnhancer {
     }
 
     /**
+     * Enhances a single downloaded image file in-place via the remote upscale server.
+     */
+    private suspend fun enhanceImageRemote(
+        imageFile: UniFile,
+        preferences: ReaderPreferences,
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val host = preferences.remoteUpscalerHost().get()
+            val port = preferences.remoteUpscalerPort().get()
+            if (host.isBlank()) return@withContext false
+
+            val originalBitmap = imageFile.openInputStream().use { inputStream ->
+                BitmapFactory.decodeStream(inputStream)
+            } ?: return@withContext false
+
+            val processed = RemoteUpscaler.process(originalBitmap, host, port)
+            if (processed != null) {
+                var result = ImageFilter.applyInkFilterIfEnabled(processed, Injekt.get())
+
+                val textureLimit = GLUtil.DEVICE_TEXTURE_LIMIT
+                if (result.width > textureLimit || result.height > textureLimit) {
+                    val widthRatio = textureLimit.toFloat() / result.width
+                    val heightRatio = textureLimit.toFloat() / result.height
+                    val downscaleRatio = min(widthRatio, heightRatio)
+                    val newWidth = (result.width * downscaleRatio).toInt().coerceAtLeast(1)
+                    val newHeight = (result.height * downscaleRatio).toInt().coerceAtLeast(1)
+                    val downscaled = nativeScaleBitmap(result, newWidth, newHeight)
+                    if (downscaled != result) {
+                        result.recycle()
+                        result = downscaled
+                    }
+                }
+
+                val compressFormat = detectCompressFormat(imageFile)
+                imageFile.openOutputStream().use { outputStream ->
+                    result.compress(compressFormat, 95, outputStream)
+                }
+
+                if (originalBitmap != result) originalBitmap.recycle()
+                result.recycle()
+                true
+            } else {
+                originalBitmap.recycle()
+                false
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "DownloadEnhancer: Failed to enhance image via remote server" }
+            false
+        }
+    }
+
+    /**
      * Writes the enhancement metadata file to a chapter directory.
      * Records the config hash so the reader can check if a chapter was
      * already enhanced with the current settings.
@@ -207,9 +265,24 @@ object DownloadEnhancer {
 
     /**
      * Computes the current enhancement config hash, matching the format used by
-     * ImageEnhancementCache.getConfigHash plus the model type.
+     * ImageEnhancementCache.getConfigHash plus the model type. Mode-aware: remote mode (3) uses the
+     * server host/port hash so download markers line up with the reader's remote cache keys.
      */
     fun computeConfigHash(preferences: ReaderPreferences): String {
+        if (preferences.enhancementMode().get() == 3) {
+            val host = preferences.remoteUpscalerHost().get()
+            val port = preferences.remoteUpscalerPort().get()
+            return ImageEnhancementCache.getConfigHash(
+                noise = 0,
+                scale = 0,
+                inputScale = 100,
+                model = -1,
+                maxWidth = 0,
+                maxHeight = 0,
+                resizeEnabled = false,
+                remoteHash = "$host:$port",
+            )
+        }
         return ImageEnhancementCache.getConfigHash(
             noise = preferences.realCuganNoiseLevel().get(),
             scale = preferences.realCuganScale().get(),

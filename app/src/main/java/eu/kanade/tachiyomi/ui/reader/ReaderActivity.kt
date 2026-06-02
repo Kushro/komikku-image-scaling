@@ -294,6 +294,11 @@ class ReaderActivity : BaseActivity() {
                     ReaderViewModel.Event.ReloadViewerChapters -> {
                         viewModel.state.value.viewerChapters?.let(::setChapters)
                     }
+                    // KMK --> Recreate page views so the enhancement pipeline re-runs immediately
+                    ReaderViewModel.Event.ReloadPages -> {
+                        viewModel.state.value.viewer?.reloadPages()
+                    }
+                    // KMK <--
                     ReaderViewModel.Event.PageChanged -> {
                         displayRefreshHost.flash()
                     }
@@ -1469,12 +1474,25 @@ class ReaderActivity : BaseActivity() {
                 .launchIn(lifecycleScope)
             // SY <--
 
-            // KMK --> Reload the viewer whenever any image-enhancement setting changes so the
-            // selected mode (none/download/live/remote) and its parameters activate immediately,
-            // instead of only after an app restart (already-built page views keep their old mode).
+            // KMK --> Migrate the removed legacy "Enhance only on download" mode (1) to the
+            // on-device mode (2) plus the "only upscale when downloading" toggle, matching old behavior.
+            if (readerPreferences.enhancementMode().get() == 1) {
+                readerPreferences.enhancementMode().set(2)
+                readerPreferences.enhanceOnDownload().set(true)
+            }
+            if (readerPreferences.lastEnhancementMode().get() == 1) {
+                readerPreferences.lastEnhancementMode().set(2)
+            }
+            // KMK <--
+
+            // KMK --> Recreate page views whenever any image-enhancement setting changes so the
+            // selected mode (none/on-device/remote) and its parameters activate immediately,
+            // instead of only after an app restart. Must use reloadPages() (full view recreation):
+            // setChapters keeps already-built page views, which retain their old enhancement mode.
             combine(
                 listOf(
                     readerPreferences.enhancementMode().changes(),
+                    readerPreferences.enhanceOnDownload().changes(),
                     readerPreferences.realCuganModel().changes(),
                     readerPreferences.realCuganNoiseLevel().changes(),
                     readerPreferences.realCuganScale().changes(),
@@ -1487,7 +1505,7 @@ class ReaderActivity : BaseActivity() {
                 ).map { pref -> pref.map { } },
             ) { }
                 .drop(1)
-                .onEach { viewModel.state.value.viewerChapters?.let(::setChapters) }
+                .onEach { viewModel.state.value.viewer?.reloadPages() }
                 .launchIn(lifecycleScope)
             // KMK <--
         }

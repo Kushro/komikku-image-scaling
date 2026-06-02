@@ -435,6 +435,12 @@ class WebtoonViewer(
         return false
     }
 
+    // KMK --> Recreate visible page views (re-runs the enhancement pipeline) for mode/param changes.
+    override fun reloadPages() {
+        refreshAdapter()
+    }
+    // KMK <--
+
     /**
      * Notifies adapter of changes around the current page to trigger a relayout in the recycler.
      * Used when an image configuration is changed.

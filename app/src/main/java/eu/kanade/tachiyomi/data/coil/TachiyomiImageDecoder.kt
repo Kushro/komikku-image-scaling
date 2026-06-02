@@ -221,7 +221,21 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                 }
                             }
                         } else if (enhancementMode == 2) {
-                            try {
+                            // KMK --> Serve a previously-enhanced page (e.g. populated by the prefetch
+                            // queue) from disk instead of re-running the model on every decode.
+                            val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, pageIndex, configHash, pageVariant)
+                            val skipped = ImageEnhancementCache.isSkipped(mangaId, chapterId, pageIndex, configHash, pageVariant)
+                            if (cachedFile != null) {
+                                try {
+                                    val cachedBitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
+                                    if (cachedBitmap != null) {
+                                        bitmap.recycle()
+                                        bitmap = cachedBitmap
+                                    }
+                                } catch (e: Exception) {
+                                    logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Failed to decode cached enhanced image" }
+                                }
+                            } else if (!skipped) try {
                                 val model = preferences.realCuganModel().get()
                                 val noise = preferences.realCuganNoiseLevel().get()
                                 var scale = preferences.realCuganScale().get()
