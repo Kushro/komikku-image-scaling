@@ -231,8 +231,13 @@ class WebtoonPageHolder(
                 val remotePort = prefs.remoteUpscalerPort().get()
                 ImageEnhancementCache.init(frame.context)
                 val configHash = ImageEnhancementCache.getConfigHash(
-                    noise = 0, scale = 0, inputScale = 100, model = -1,
-                    maxWidth = 0, maxHeight = 0, resizeEnabled = false,
+                    noise = 0,
+                    scale = 0,
+                    inputScale = 100,
+                    model = -1,
+                    maxWidth = 0,
+                    maxHeight = 0,
+                    resizeEnabled = false,
                     remoteHash = "$remoteHost:$remotePort",
                 )
                 val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, pageIndex, configHash)

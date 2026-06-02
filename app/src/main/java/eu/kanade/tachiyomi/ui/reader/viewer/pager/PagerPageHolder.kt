@@ -16,8 +16,8 @@ import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
-import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
+import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
 import kotlinx.coroutines.Dispatchers
@@ -234,8 +234,13 @@ class PagerPageHolder(
                 val remotePort = prefs.remoteUpscalerPort().get()
                 ImageEnhancementCache.init(context)
                 val configHash = ImageEnhancementCache.getConfigHash(
-                    noise = 0, scale = 0, inputScale = 100, model = -1,
-                    maxWidth = 0, maxHeight = 0, resizeEnabled = false,
+                    noise = 0,
+                    scale = 0,
+                    inputScale = 100,
+                    model = -1,
+                    maxWidth = 0,
+                    maxHeight = 0,
+                    resizeEnabled = false,
                     remoteHash = "$remoteHost:$remotePort",
                 )
                 val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, page.index, configHash)
