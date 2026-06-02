@@ -256,6 +256,8 @@
     <string name="reader_target_height">Target height</string>
     <string name="reader_prescale_to_target">Prescale input image to target resolution</string>
     <string name="reader_show_processing_status">Show processing status in bottom-left corner</string>
+    <string name="reader_show_preloading_status">Show preloading status in bottom-left corner</string>
+    <string name="reader_preload_status">%1$d Loaded / %2$d Loading / %3$d Max</string>
     <string name="reader_none">None</string>
     <string name="reader_conservative">Conservative</string>
     <string name="reader_status_raw">RAW</string>

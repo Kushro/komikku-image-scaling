@@ -51,6 +51,7 @@ import eu.kanade.tachiyomi.util.lang.byteSize
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.DiskUtil.MAX_FILE_NAME_BYTES
 import eu.kanade.tachiyomi.util.storage.cacheImageDir
+import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import exh.metadata.metadata.RaisedSearchMetadata
 import exh.source.MERGED_SOURCE_ID
@@ -62,6 +63,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -386,6 +388,25 @@ class ReaderViewModel @JvmOverloads constructor(
             }
             .launchIn(viewModelScope)
         // SY <--
+
+        // KMK --> Keep the "Show preloading status" overlay counters fresh while enabled, even when
+        // the user isn't turning pages (background upscales finishing shift loaded/loading counts).
+        viewModelScope.launchIO {
+            while (true) {
+                val status = if (readerPreferences.realCuganShowPreloadStatus().get()) {
+                    val page = lastSelectedPage
+                    val pages = lastSelectedPages
+                    if (page != null && pages != null) computePreloadStatus(page, pages) else null
+                } else {
+                    null
+                }
+                if (state.value.preloadStatus != status) {
+                    mutableState.update { it.copy(preloadStatus = status) }
+                }
+                delay(500)
+            }
+        }
+        // KMK <--
     }
 
     override fun onCleared() {
@@ -719,12 +740,25 @@ class ReaderViewModel @JvmOverloads constructor(
     // KMK -->
     private var prefetchJob: Job? = null
 
+    // Latest selected page + its chapter's page list, used by the preloading-status overlay poll
+    // so it can keep recomputing counters even while the user isn't turning pages.
+    @Volatile
+    private var lastSelectedPage: ReaderPage? = null
+
+    @Volatile
+    private var lastSelectedPages: List<ReaderPage>? = null
+
     /**
      * Enqueues the current page and the next [ReaderPreferences.realCuganPreloadSize] pages for
      * background enhancement (on-device or remote), so they are cached before the user reaches them.
      * No-op when enhancement is off or "only upscale when downloading" is enabled (no live work).
      */
     private fun prefetchEnhancement(currentPage: ReaderPage, pages: List<ReaderPage>) {
+        // Remember the window context so the preloading-status overlay can keep refreshing
+        // its counters between page changes (background upscales completing).
+        lastSelectedPage = currentPage
+        lastSelectedPages = pages
+
         val mode = readerPreferences.enhancementMode().get()
         if (mode == 0 || readerPreferences.enhanceOnDownload().get()) return
 
@@ -756,6 +790,85 @@ class ReaderViewModel @JvmOverloads constructor(
                 ImageEnhancer.enhance(context, target, highPriority = offset == 0)
             }
         }
+    }
+
+    /**
+     * Config hash for the current live/remote enhancement settings. Mirrors exactly the hash the
+     * [eu.kanade.tachiyomi.data.coil.TachiyomiImageDecoder] uses when it caches prefetched pages
+     * (note: live mode pins inputScale=100), so cache-hit checks here line up with reality.
+     */
+    private fun currentEnhancementConfigHash(): String {
+        return if (readerPreferences.enhancementMode().get() == 3) {
+            ImageEnhancementCache.getConfigHash(
+                noise = 0,
+                scale = 0,
+                inputScale = 100,
+                model = -1,
+                maxWidth = 0,
+                maxHeight = 0,
+                resizeEnabled = false,
+                remoteHash = "${readerPreferences.remoteUpscalerHost().get()}:${readerPreferences.remoteUpscalerPort().get()}",
+            )
+        } else {
+            ImageEnhancementCache.getConfigHash(
+                noise = readerPreferences.realCuganNoiseLevel().get(),
+                scale = readerPreferences.realCuganScale().get(),
+                inputScale = 100,
+                model = readerPreferences.realCuganModel().get(),
+                maxWidth = readerPreferences.realCuganMaxSizeWidth().get(),
+                maxHeight = readerPreferences.realCuganMaxSizeHeight().get(),
+                resizeEnabled = readerPreferences.realCuganResizeLargeImage().get(),
+            )
+        }
+    }
+
+    /**
+     * Counts, for the [ReaderPreferences.realCuganPreloadSize] pages *after* the current one, how
+     * many have finished upscaling (cached, skipped, or baked-in at download) vs. are still queued/
+     * processing. Returns null when live preloading doesn't apply (enhancement off, "only upscale
+     * when downloading", or reading an already-upscaled downloaded chapter), so the overlay hides.
+     */
+    private fun computePreloadStatus(currentPage: ReaderPage, pages: List<ReaderPage>): PreloadStatus? {
+        val mode = readerPreferences.enhancementMode().get()
+        // Preloading only runs when an enhancement mode is on and we're upscaling live in the reader.
+        if (mode == 0 || readerPreferences.enhanceOnDownload().get()) return null
+        // Reading an already-upscaled downloaded chapter: pages are served baked-in, nothing is
+        // preloaded live, so there's nothing to report.
+        if (currentPage.alreadyUpscaled) return null
+
+        val currentIndex = pages.indexOf(currentPage)
+        if (currentIndex == -1) return null
+
+        val count = readerPreferences.realCuganPreloadSize().get()
+        if (count <= 0) return null
+
+        ImageEnhancementCache.init(Injekt.get<Application>())
+        val configHash = currentEnhancementConfigHash()
+
+        var loaded = 0
+        var loading = 0
+        for (offset in 1..count) {
+            val target = pages.getOrNull(currentIndex + offset) ?: break
+            val mangaId = target.chapter.chapter.manga_id ?: -1L
+            val chapterId = target.chapter.chapter.id ?: -1L
+            val variant = target.enhancementKeySuffix
+            when {
+                // Already upscaled (baked at download) — counts as finished, no live work needed.
+                target.alreadyUpscaled -> loaded++
+                mangaId == -1L || chapterId == -1L -> {
+                    // Can't key the cache/queue for this page; leave it out of the counts.
+                }
+                // Skipped pages never produce a cache entry (too large); treat as terminal/done so
+                // the counter isn't stuck below max forever.
+                ImageEnhancementCache.isCached(mangaId, chapterId, target.index, configHash, variant) ||
+                    ImageEnhancementCache.isSkipped(mangaId, chapterId, target.index, configHash, variant) -> loaded++
+                // Queued or actively being upscaled.
+                ImageEnhancer.hasRequest(mangaId, chapterId, target.index, variant) -> loading++
+                // Otherwise the page isn't ready to enqueue yet (its source hasn't loaded); not counted.
+            }
+        }
+
+        return PreloadStatus(loaded = loaded, loading = loading, max = count)
     }
     // KMK <--
 
@@ -1585,6 +1698,7 @@ class ReaderViewModel @JvmOverloads constructor(
         // SY <--
         // KMK -->
         val processingStatus: String? = null,
+        val preloadStatus: PreloadStatus? = null,
         // KMK <--
     ) {
         val currentChapter: ReaderChapter?
@@ -1593,6 +1707,18 @@ class ReaderViewModel @JvmOverloads constructor(
         val totalPages: Int
             get() = currentChapter?.pages?.size ?: -1
     }
+
+    // KMK --> Live counters for the "Show preloading status" overlay.
+    @Immutable
+    data class PreloadStatus(
+        /** Pages in the look-ahead window whose upscale is finished (cached/skipped/baked-in). */
+        val loaded: Int,
+        /** Pages currently queued or actively being upscaled. */
+        val loading: Int,
+        /** Configured preload window size (pages to keep upscaled after the current page). */
+        val max: Int,
+    )
+    // KMK <--
 
     sealed interface Dialog {
         data object Loading : Dialog
