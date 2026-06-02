@@ -185,7 +185,11 @@ object ImageEnhancementCache {
         maxWidth: Int = 0,
         maxHeight: Int = 0,
         resizeEnabled: Boolean = false,
+        remoteHash: String = "",
     ): String {
+        if (remoteHash.isNotEmpty()) {
+            return "remote_${remoteHash}_${noise}x${scale}x${inputScale}_m$model"
+        }
         return "${noise}x${scale}x${inputScale}_m${model}_w${maxWidth}_h${maxHeight}_r${if (resizeEnabled) 1 else 0}"
     }
 
