@@ -27,6 +27,13 @@ interface Viewer {
     fun setChapters(chapters: ViewerChapters)
 
     /**
+     * Forces every already-built page view to be recreated, keeping the current position. Unlike
+     * [setChapters] this re-runs the per-page image load/decode pipeline even when the page list is
+     * unchanged, so image-enhancement mode/parameter changes take effect immediately.
+     */
+    fun reloadPages() {}
+
+    /**
      * Tells this viewer to move to the given [page].
      */
     fun moveToPage(page: ReaderPage)

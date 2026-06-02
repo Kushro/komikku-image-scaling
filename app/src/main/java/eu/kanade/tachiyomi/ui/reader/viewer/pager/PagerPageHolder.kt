@@ -224,10 +224,13 @@ class PagerPageHolder(
             // KMK --> Determine enhancement mode and handle remote "show original first"
             val prefs = viewer.activity.viewModel.readerPreferences
             val enhancementMode = prefs.enhancementMode().get()
+            // When "only upscale when downloading" is on, the reader never enhances live — it serves
+            // the stored file (pre-upscaled for downloaded chapters, original otherwise).
+            val liveEnhancement = enhancementMode != 0 && !prefs.enhanceOnDownload().get()
             val mangaId = page.chapter.chapter.manga_id ?: -1L
             val chapterId = page.chapter.chapter.id ?: -1L
 
-            val isRemoteMode = enhancementMode == 3 && !page.alreadyUpscaled && extraPage == null
+            val isRemoteMode = enhancementMode == 3 && liveEnhancement && !page.alreadyUpscaled && extraPage == null
 
             if (isRemoteMode) {
                 val remoteHost = prefs.remoteUpscalerHost().get()
@@ -358,7 +361,7 @@ class PagerPageHolder(
                             disableZoomIn = viewer.config.disableZoomIn,
                             doubleTapZoom = viewer.config.doubleTapZoom,
                             landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
-                            enhanced = enhancementMode == 2,
+                            enhanced = enhancementMode == 2 && liveEnhancement,
                             mangaId = mangaId,
                             chapterId = chapterId,
                             pageIndex = page.index,

@@ -708,8 +708,41 @@ class ReaderViewModel @JvmOverloads constructor(
             downloadNextChapters()
         }
 
+        // KMK --> Pre-upscale a window of upcoming pages so navigation is instant.
+        prefetchEnhancement(page, pages)
+        // KMK <--
+
         eventChannel.trySend(Event.PageChanged)
     }
+
+    // KMK -->
+    /**
+     * Enqueues the current page and the next [ReaderPreferences.realCuganPreloadSize] pages for
+     * background enhancement (on-device or remote), so they are cached before the user reaches them.
+     * No-op when enhancement is off or "only upscale when downloading" is enabled (no live work).
+     */
+    private fun prefetchEnhancement(currentPage: ReaderPage, pages: List<ReaderPage>) {
+        val mode = readerPreferences.enhancementMode().get()
+        if (mode == 0 || readerPreferences.enhanceOnDownload().get()) return
+
+        val currentIndex = pages.indexOf(currentPage)
+        if (currentIndex == -1) return
+
+        ImageEnhancer.reprioritizeAround(currentPage.index)
+
+        val count = readerPreferences.realCuganPreloadSize().get()
+        // Reading each page's source stream is blocking IO, so build/enqueue requests off the main thread.
+        viewModelScope.launchIO {
+            val context = Injekt.get<Application>()
+            for (offset in 0..count) {
+                val target = pages.getOrNull(currentIndex + offset) ?: break
+                if (target.alreadyUpscaled || target.status != Page.State.Ready) continue
+                // Enqueue the focused page as high priority so the queue's initial-target gate opens.
+                ImageEnhancer.enhance(context, target, highPriority = offset == 0)
+            }
+        }
+    }
+    // KMK <--
 
     private fun downloadNextChapters() {
         if (downloadAheadAmount == 0) return
@@ -1142,9 +1175,11 @@ class ReaderViewModel @JvmOverloads constructor(
     /**
      * Rebuilds the current viewer's page views. Used after enhancement caches are cleared
      * (e.g. "Force re-upscale") so pages re-run their enhancement pipeline immediately.
+     * Uses [Event.ReloadPages] (full view recreation) rather than [Event.ReloadViewerChapters],
+     * which keeps already-built views and would not re-run the enhancement pipeline.
      */
     fun requestViewerReload() {
-        eventChannel.trySend(Event.ReloadViewerChapters)
+        eventChannel.trySend(Event.ReloadPages)
     }
     // KMK <--
 
@@ -1570,6 +1605,10 @@ class ReaderViewModel @JvmOverloads constructor(
 
     sealed interface Event {
         data object ReloadViewerChapters : Event
+
+        // KMK --> Force-recreate all page views (re-runs the enhancement pipeline).
+        data object ReloadPages : Event
+        // KMK <--
         data object PageChanged : Event
         data class SetOrientation(val orientation: Int) : Event
         data class SetCoverResult(val result: SetAsCoverResult) : Event

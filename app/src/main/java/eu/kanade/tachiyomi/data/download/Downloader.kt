@@ -99,11 +99,13 @@ class Downloader(
      */
     private val store = DownloadStore(context)
 
-    // KMK --> Whether to enhance images during download (mode 1=DOWNLOAD_ONLY, 2=LIVE_LOCAL both enhance on download)
+    // KMK --> Whether to bake upscaling into the downloaded files. Only when an enhancement mode is
+    // active (on-device/remote) AND the user opted into "only upscale when downloading". When off,
+    // downloads stay original (offline-safe) and upscaling happens live in the reader instead.
     private val enhanceOnDownload: Boolean
         get() {
             val mode = readerPreferences.enhancementMode().get()
-            return mode == 1 || mode == 2
+            return mode != 0 && readerPreferences.enhanceOnDownload().get()
         }
     // KMK <--
 

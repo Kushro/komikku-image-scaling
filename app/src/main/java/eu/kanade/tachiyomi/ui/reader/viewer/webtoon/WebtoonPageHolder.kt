@@ -216,12 +216,14 @@ class WebtoonPageHolder(
             // KMK --> Determine enhancement mode and handle remote "show original first"
             val prefs = viewer.activity.viewModel.readerPreferences
             val enhancementMode = prefs.enhancementMode().get()
+            // When "only upscale when downloading" is on, the reader never enhances live.
+            val liveEnhancement = enhancementMode != 0 && !prefs.enhanceOnDownload().get()
             val mangaId = page?.chapter?.chapter?.manga_id ?: -1L
             val chapterId = page?.chapter?.chapter?.id ?: -1L
             val pageIndex = page?.index ?: -1
             val alreadyUpscaled = page?.alreadyUpscaled ?: false
 
-            val isRemoteMode = enhancementMode == 3 && !alreadyUpscaled
+            val isRemoteMode = enhancementMode == 3 && liveEnhancement && !alreadyUpscaled
 
             val cropBorders = (viewer.config.imageCropBorders && viewer.isContinuous) ||
                 (viewer.config.continuousCropBorders && !viewer.isContinuous)
@@ -330,7 +332,7 @@ class WebtoonPageHolder(
                             zoomDuration = viewer.config.doubleTapAnimDuration,
                             minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
                             cropBorders = cropBorders,
-                            enhanced = enhancementMode == 2,
+                            enhanced = enhancementMode == 2 && liveEnhancement,
                             mangaId = mangaId,
                             chapterId = chapterId,
                             pageIndex = pageIndex,

@@ -416,6 +416,12 @@ abstract class PagerViewer(
         }
     }
 
+    // KMK --> Recreate all page views (re-runs the enhancement pipeline) for mode/param changes.
+    override fun reloadPages() {
+        refreshAdapter()
+    }
+    // KMK <--
+
     /**
      * Resets the adapter in order to recreate all the views. Used when a image configuration is
      * changed.

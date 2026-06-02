@@ -154,7 +154,6 @@ internal fun ColorFilterPage(screenModel: ReaderSettingsScreenModel) {
     SettingsChipRow(KMR.strings.reader_enhancement_mode) {
         listOf(
             0 to stringResource(KMR.strings.reader_enhancement_none),
-            1 to stringResource(KMR.strings.reader_enhancement_download_only),
             2 to stringResource(KMR.strings.reader_enhancement_live),
             3 to stringResource(KMR.strings.reader_enhancement_remote),
         ).forEach { (value, label) ->
@@ -253,7 +252,19 @@ internal fun ColorFilterPage(screenModel: ReaderSettingsScreenModel) {
                 Text(stringResource(KMR.strings.reader_force_reupscale))
             }
         }
-    } else if (enhancementMode == 1 || enhancementMode == 2) {
+
+        // How many pages ahead to queue for remote upscaling (mirrors on-device)
+        SettingsChipRow(KMR.strings.reader_preload_pages) {
+            listOf(1, 2, 3, 5, 8).map { size ->
+                val realCuganPreloadSize by screenModel.preferences.realCuganPreloadSize().collectAsState()
+                FilterChip(
+                    selected = realCuganPreloadSize == size,
+                    onClick = { screenModel.preferences.realCuganPreloadSize().set(size) },
+                    label = { Text(stringResource(KMR.strings.reader_preload_pages_value, size)) },
+                )
+            }
+        }
+    } else if (enhancementMode == 2) {
         // Local mode: show model selection
         val realCuganModel by screenModel.preferences.realCuganModel().collectAsState()
         val realCuganNoiseLevel by screenModel.preferences.realCuganNoiseLevel().collectAsState()
@@ -382,6 +393,16 @@ internal fun ColorFilterPage(screenModel: ReaderSettingsScreenModel) {
     }
 
     if (enhancementMode != 0) {
+        CheckboxItem(
+            label = stringResource(KMR.strings.reader_enhance_on_download),
+            pref = screenModel.preferences.enhanceOnDownload(),
+        )
+        Text(
+            text = stringResource(KMR.strings.reader_enhance_on_download_summary),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal, vertical = 4.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         CheckboxItem(
             label = stringResource(KMR.strings.reader_show_processing_status),
             pref = screenModel.preferences.realCuganShowStatus(),

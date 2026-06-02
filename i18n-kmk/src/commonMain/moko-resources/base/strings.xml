@@ -275,9 +275,10 @@
     <!-- Enhancement mode selection -->
     <string name="reader_enhancement_mode">Enhancement mode</string>
     <string name="reader_enhancement_none">Do not enhance</string>
-    <string name="reader_enhancement_download_only">Enhance only on download</string>
-    <string name="reader_enhancement_live">Live enhance</string>
-    <string name="reader_enhancement_remote">Remote Enhance</string>
+    <string name="reader_enhancement_live">On-device</string>
+    <string name="reader_enhancement_remote">Remote</string>
+    <string name="reader_enhance_on_download">Only upscale when downloading</string>
+    <string name="reader_enhance_on_download_summary">Upscale chapters once at download time and read the stored result, instead of upscaling live while reading. Downloaded chapters stay original when this is off.</string>
     <string name="reader_check_connection">Check connection</string>
     <string name="reader_force_reupscale">Force re-upscale on server</string>
     <string name="reader_force_reupscale_summary">Clears local cache for this chapter so images are re-sent to the server. Useful after changing the server model.</string>

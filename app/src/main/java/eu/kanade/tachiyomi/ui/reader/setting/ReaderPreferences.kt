@@ -213,7 +213,8 @@ class ReaderPreferences(
 
     // KMK -->
     // Image enhancement (upscaling)
-    // Enhancement mode: 0=NONE, 1=DOWNLOAD_ONLY, 2=LIVE_LOCAL, 3=REMOTE
+    // Enhancement mode: 0=NONE, 2=ON_DEVICE (live local), 3=REMOTE
+    // (legacy 1=DOWNLOAD_ONLY removed; migrated to mode 2 + enhanceOnDownload() in ReaderActivity)
     fun enhancementMode() = preferenceStore.getInt("pref_enhancement_mode", 0)
     // Remembers the last active (non-zero) mode so the reader toolbar can quick-toggle enhancement on/off
     fun lastEnhancementMode() = preferenceStore.getInt("pref_last_enhancement_mode", 2)
@@ -232,6 +233,8 @@ class ReaderPreferences(
     fun remoteUpscalerHost() = preferenceStore.getString("pref_remote_upscaler_host", "")
     fun remoteUpscalerPort() = preferenceStore.getInt("pref_remote_upscaler_port", 8282)
     // KMK -->
+    // "Only upscale when downloading": bake upscaling into downloaded files (once) and read the
+    // stored result, instead of upscaling live in the reader. Off by default = downloads stay original.
     fun enhanceOnDownload() = preferenceStore.getBoolean("pref_enhance_on_download", false)
     // KMK <--
     fun anime4kEnabled() = preferenceStore.getBoolean("pref_anime4k_enabled", false)
