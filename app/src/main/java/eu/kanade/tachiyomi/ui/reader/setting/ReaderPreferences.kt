@@ -233,6 +233,12 @@ class ReaderPreferences(
     // Remote upscaler (routes images to a Python TUI server instead of local NCNN)
     fun remoteUpscalerHost() = preferenceStore.getString("pref_remote_upscaler_host", "")
     fun remoteUpscalerPort() = preferenceStore.getInt("pref_remote_upscaler_port", 8282)
+    // How images are sent to the remote upscaler (only used when enhancementMode == 3):
+    // 0 = image per image (POST /upscale), 1 = batch image (POST /upscale/batch),
+    // 2 = url per url (POST /upscale/url), 3 = batch url (POST /upscale/batch/url).
+    // Batch strategies are driven by the prefetch queue over the preload window; the
+    // visible page always uses the single-image/url path for instant feedback.
+    fun remoteUpscaleStrategy() = preferenceStore.getInt("pref_remote_upscale_strategy", 0)
     // KMK -->
     // "Only upscale when downloading": bake upscaling into downloaded files (once) and read the
     // stored result, instead of upscaling live in the reader. Off by default = downloads stay original.

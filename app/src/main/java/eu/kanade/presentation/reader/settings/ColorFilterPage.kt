@@ -166,7 +166,29 @@ internal fun ColorFilterPage(screenModel: ReaderSettingsScreenModel) {
     }
 
     if (enhancementMode == 3) {
-        // Remote mode: show server config + connection check + force re-upscale
+        // Remote mode: show strategy + server config + connection check + force re-upscale
+        val remoteStrategy by screenModel.preferences.remoteUpscaleStrategy().collectAsState()
+        SettingsChipRow(KMR.strings.reader_remote_strategy) {
+            listOf(
+                0 to stringResource(KMR.strings.reader_remote_strategy_image),
+                1 to stringResource(KMR.strings.reader_remote_strategy_batch_image),
+                2 to stringResource(KMR.strings.reader_remote_strategy_url),
+                3 to stringResource(KMR.strings.reader_remote_strategy_batch_url),
+            ).forEach { (value, label) ->
+                FilterChip(
+                    selected = remoteStrategy == value,
+                    onClick = { screenModel.preferences.remoteUpscaleStrategy().set(value) },
+                    label = { Text(label) },
+                )
+            }
+        }
+        Text(
+            text = stringResource(KMR.strings.reader_remote_strategy_summary),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal, vertical = 4.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         Text(
             text = stringResource(KMR.strings.reader_remote_upscaler_model_info),
             style = MaterialTheme.typography.bodySmall,
