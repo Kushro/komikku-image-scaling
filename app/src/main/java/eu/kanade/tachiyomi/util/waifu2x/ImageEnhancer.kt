@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.util.waifu2x
 
 import android.content.Context
+import android.graphics.Bitmap
 import coil3.SingletonImageLoader
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
@@ -11,6 +12,8 @@ import eu.kanade.tachiyomi.data.coil.mangaId
 import eu.kanade.tachiyomi.data.coil.pageIndex
 import eu.kanade.tachiyomi.data.coil.pageVariant
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import eu.kanade.tachiyomi.util.system.GLUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,7 +21,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import logcat.LogPriority
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okio.Buffer
 import tachiyomi.core.common.util.system.logcat
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.PriorityBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
@@ -26,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger
 object ImageEnhancer {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val pendingRequests = ConcurrentHashMap<String, Unit>()
+    private val preferences by lazy { Injekt.get<ReaderPreferences>() }
 
     // Priority Queue order:
     // 1. Current visible primary page
@@ -122,7 +129,20 @@ object ImageEnhancer {
                     }
 
                     val req = runInterruptible { queue.take() }
-                    processRequest(req)
+                    // Remote batch/URL strategies are driven here: instead of routing each page
+                    // through Coil/the decoder one at a time, gather a window of queued pages and
+                    // upscale them in a single server request, writing each result to the cache.
+                    val strategy = remoteStrategyOrNull()
+                    if (strategy != null && strategy != STRATEGY_IMAGE) {
+                        val batch = mutableListOf(req)
+                        if (strategy == STRATEGY_BATCH_IMAGE || strategy == STRATEGY_BATCH_URL) {
+                            val window = preferences.realCuganPreloadSize().get().coerceAtLeast(1)
+                            if (window > 1) queue.drainTo(batch, window - 1)
+                        }
+                        processBatchRequests(batch)
+                    } else {
+                        processRequest(req)
+                    }
                 } catch (e: Exception) {
                     if (e !is InterruptedException) {
                         logcat(LogPriority.ERROR, e) { "ImageEnhancer: Worker loop error" }
@@ -138,17 +158,29 @@ object ImageEnhancer {
 
         if (mangaId == -1L || chapterId == -1L) return
 
+        // For URL strategies, send the source URL so the server downloads it directly. Falls
+        // back to the image bytes below when there's no usable http URL (local/downloaded
+        // chapters, or localhost placeholders) — the batch worker then routes it as image data.
+        val strategy = remoteStrategyOrNull()
+        if (strategy == STRATEGY_URL || strategy == STRATEGY_BATCH_URL) {
+            val usableUrl = page.imageUrl?.takeIf { it.isUsableRemoteUrl() }
+            if (usableUrl != null) {
+                enhance(context, mangaId, chapterId, page.index, usableUrl, highPriority, page.enhancementKeySuffix)
+                return
+            }
+        }
+
         // Prioritize stream over imageUrl. For online manga, imageUrl can be a placeholder
         // (e.g., https://127.0.0.1/...) while the actual image data is in the stream.
         val data: Any = page.enhancementStream?.let { streamFn ->
             try {
-                okio.Buffer().readFrom(streamFn())
+                Buffer().readFrom(streamFn())
             } catch (e: Exception) {
                 null
             }
         } ?: page.stream?.let { streamFn ->
             try {
-                okio.Buffer().readFrom(streamFn())
+                Buffer().readFrom(streamFn())
             } catch (e: Exception) {
                 null
             }
@@ -315,4 +347,100 @@ object ImageEnhancer {
             pendingRequests.remove("${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}")
         }
     }
+
+    // KMK --> Remote batch/URL strategies (only used when enhancementMode == 3)
+    private const val STRATEGY_IMAGE = 0
+    private const val STRATEGY_BATCH_IMAGE = 1
+    private const val STRATEGY_URL = 2
+    private const val STRATEGY_BATCH_URL = 3
+
+    /** The active remote upscale strategy, or null when remote mode isn't selected. */
+    private fun remoteStrategyOrNull(): Int? =
+        if (preferences.enhancementMode().get() == 3) preferences.remoteUpscaleStrategy().get() else null
+
+    private fun String.isUsableRemoteUrl(): Boolean =
+        startsWith("http", true) && !contains("127.0.0.1") && !contains("localhost")
+
+    /**
+     * Upscale a window of queued pages in a single server request and write each result to the
+     * disk cache (which the page holders and decoder read on their fast path). URL-typed requests
+     * go to /upscale/batch/url; byte-typed ones (image strategy, or URL fallback) to /upscale/batch.
+     */
+    private suspend fun processBatchRequests(batch: List<EnhanceRequest>) {
+        val context = batch.first().context
+        val host = preferences.remoteUpscalerHost().get()
+        val port = preferences.remoteUpscalerPort().get()
+        ImageEnhancementCache.init(context)
+        val configHash = ImageEnhancementCache.getConfigHash(
+            noise = 0,
+            scale = 0,
+            inputScale = 100,
+            model = -1,
+            maxWidth = 0,
+            maxHeight = 0,
+            resizeEnabled = false,
+            remoteHash = "$host:$port",
+        )
+
+        // Track the batch as "actively processing" so UI status checks reflect it.
+        val first = batch.first()
+        activeMangaId = first.mangaId
+        activeChapterId = first.chapterId
+        activePageIndex = first.pageIndex
+        activePageVariant = first.pageVariant
+        try {
+            logcat(LogPriority.DEBUG) { "ImageEnhancer: Batch-processing ${batch.size} page(s) via remote strategy" }
+
+            val urlReqs = batch.filter { it.data is String }
+            val byteReqs = batch.filter { it.data is Buffer }
+
+            if (urlReqs.isNotEmpty()) {
+                val results = RemoteUpscaler.processBatchUrl(urlReqs.map { it.data as String }, host, port)
+                urlReqs.forEachIndexed { i, req ->
+                    results.getOrNull(i)?.let { saveBatchResult(req, configHash, it) }
+                }
+            }
+            if (byteReqs.isNotEmpty()) {
+                val images = byteReqs.map { (it.data as Buffer).readByteArray() }
+                val results = RemoteUpscaler.processBatch(images, host, port)
+                byteReqs.forEachIndexed { i, req ->
+                    results.getOrNull(i)?.let { saveBatchResult(req, configHash, it) }
+                }
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "ImageEnhancer: Batch processing failed" }
+        } finally {
+            activeMangaId = -1L
+            activeChapterId = -1L
+            activePageIndex = -1
+            activePageVariant = ""
+            batch.forEach {
+                pendingRequests.remove("${it.mangaId}_${it.chapterId}_${it.pageIndex}_${it.pageVariant}")
+            }
+        }
+    }
+
+    /** Clamp to the display limit (server already enforces this, but device texture limits vary) and cache it. */
+    private fun saveBatchResult(req: EnhanceRequest, configHash: String, bitmap: Bitmap) {
+        var out = bitmap
+        try {
+            val limit = minOf(GLUtil.DEVICE_TEXTURE_LIMIT, 16383)
+            if (out.width > limit || out.height > limit) {
+                val ratio = minOf(limit.toFloat() / out.width, limit.toFloat() / out.height)
+                val w = (out.width * ratio).toInt().coerceAtLeast(1)
+                val h = (out.height * ratio).toInt().coerceAtLeast(1)
+                val scaled = Bitmap.createScaledBitmap(out, w, h, true)
+                if (scaled != out) {
+                    out.recycle()
+                    out = scaled
+                }
+            }
+            ImageEnhancementCache.saveToCache(req.mangaId, req.chapterId, req.pageIndex, configHash, out, req.pageVariant)
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "ImageEnhancer: Failed to cache batch result for page ${req.pageIndex}" }
+        } finally {
+            if (!out.isRecycled) out.recycle()
+        }
+    }
+    // KMK <--
 }

@@ -231,6 +231,17 @@ class WebtoonPageHolder(
             if (isRemoteMode) {
                 val remoteHost = prefs.remoteUpscalerHost().get()
                 val remotePort = prefs.remoteUpscalerPort().get()
+                // URL strategies (2 = url/url, 3 = batch url) ask the server to download the
+                // source image. The visible page always upscales individually (batch is handled
+                // by the prefetch queue), so strategies 2 and 3 both use the single-URL path here.
+                val remoteStrategy = prefs.remoteUpscaleStrategy().get()
+                val remoteUrl = if (remoteStrategy == 2 || remoteStrategy == 3) {
+                    page?.imageUrl?.takeIf {
+                        it.startsWith("http", true) && !it.contains("127.0.0.1") && !it.contains("localhost")
+                    }
+                } else {
+                    null
+                }
                 ImageEnhancementCache.init(frame.context)
                 val configHash = ImageEnhancementCache.getConfigHash(
                     noise = 0,
@@ -285,10 +296,20 @@ class WebtoonPageHolder(
                     remoteEnhanceJob?.cancel()
                     remoteEnhanceJob = scope.launch(Dispatchers.IO) {
                         try {
-                            val input = BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.size)
-                                ?: return@launch
-                            val enhanced = RemoteUpscaler.process(input, remoteHost, remotePort) { msg ->
+                            val statusCb: suspend (String) -> Unit = { msg ->
                                 viewer.activity.viewModel.updateProcessingStatus(msg)
+                            }
+                            // Try the server-side download first for URL strategies; fall back to
+                            // sending the decoded bitmap when no usable URL or the server can't fetch it.
+                            var enhanced: Bitmap? = if (remoteUrl != null) {
+                                RemoteUpscaler.processUrl(remoteUrl, remoteHost, remotePort, statusCb)
+                            } else {
+                                null
+                            }
+                            if (enhanced == null) {
+                                val input = BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.size)
+                                    ?: return@launch
+                                enhanced = RemoteUpscaler.process(input, remoteHost, remotePort, statusCb)
                             }
                             if (enhanced != null) {
                                 ImageEnhancementCache.saveToCache(mangaId, chapterId, pageIndex, configHash, enhanced)

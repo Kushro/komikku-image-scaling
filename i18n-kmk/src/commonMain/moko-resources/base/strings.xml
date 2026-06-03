@@ -285,6 +285,13 @@
     <string name="reader_force_reupscale">Force re-upscale on server</string>
     <string name="reader_force_reupscale_summary">Clears local cache for this chapter so images are re-sent to the server. Useful after changing the server model.</string>
     <string name="reader_remote_model_active">Active model: %1$s</string>
+    <!-- Remote upscale strategy selection -->
+    <string name="reader_remote_strategy">Strategy</string>
+    <string name="reader_remote_strategy_image">Image per image</string>
+    <string name="reader_remote_strategy_batch_image">Batch image</string>
+    <string name="reader_remote_strategy_url">URL per URL</string>
+    <string name="reader_remote_strategy_batch_url">Batch URL</string>
+    <string name="reader_remote_strategy_summary">How pages are sent to the server. Batch strategies group preloaded pages into one request; URL strategies have the server download the image directly (best for online sources, falls back to sending the image when unavailable).</string>
     <!-- Remote status messages -->
     <string name="reader_remote_status_connecting">Connecting to server…</string>
     <string name="reader_remote_status_uploading">Uploading image…</string>
