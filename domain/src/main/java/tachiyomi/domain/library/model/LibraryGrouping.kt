@@ -29,6 +29,10 @@ enum class LibraryGroupSort {
     NATURAL,
     ALPHABETICAL,
     ITEM_COUNT,
+    /** By the most recent chapter upload date among the section's manga. */
+    LATEST_CHAPTER,
+    /** By the most recent date-added-to-library among the section's manga. */
+    DATE_ADDED,
 }
 
 data class LibraryGroupLayer(

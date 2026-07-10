@@ -311,6 +311,8 @@
     <string name="group_sort_natural">Natural order</string>
     <string name="group_sort_alphabetical">Alphabetical</string>
     <string name="group_sort_count">Item count</string>
+    <string name="group_sort_latest_chapter">Latest chapter</string>
+    <string name="group_sort_date_added">Date added</string>
     <string name="group_sort_ascending">Ascending</string>
     <string name="group_sort_descending">Descending</string>
     <string name="group_by_source">Source</string>
@@ -353,7 +355,5 @@
     <string name="group_date_never">Never</string>
     <string name="group_collapse_all">Collapse all groups</string>
     <string name="group_expand_all">Expand all groups</string>
-    <string name="group_select_group">Select group</string>
-    <string name="group_update_group">Update group</string>
     <string name="group_ignore_categories">Ignore categories</string>
 </resources>
