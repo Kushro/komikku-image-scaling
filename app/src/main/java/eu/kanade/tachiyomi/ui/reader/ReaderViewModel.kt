@@ -93,6 +93,9 @@ import tachiyomi.domain.chapter.interactor.GetMergedChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.UpdateChapter
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.chapter.model.ChapterUpdate
+// KMK -->
+import tachiyomi.domain.chapter.service.deduplicateByScanlatorPriority
+// KMK <--
 import tachiyomi.domain.chapter.service.getChapterSort
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.history.interactor.GetNextChapters
@@ -103,6 +106,9 @@ import tachiyomi.domain.manga.interactor.GetFlatMetadataById
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.interactor.GetMergedMangaById
 import tachiyomi.domain.manga.interactor.GetMergedReferencesById
+// KMK -->
+import tachiyomi.domain.manga.interactor.GetScanlatorPriorities
+// KMK <--
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.source.local.isLocal
@@ -142,6 +148,9 @@ class ReaderViewModel @JvmOverloads constructor(
     private val getMergedReferencesById: GetMergedReferencesById = Injekt.get(),
     private val getMergedChaptersByMangaId: GetMergedChaptersByMangaId = Injekt.get(),
     // SY <--
+    // KMK -->
+    private val getScanlatorPriorities: GetScanlatorPriorities = Injekt.get(),
+    // KMK <--
 ) : ViewModel() {
 
     private val mutableState = MutableStateFlow(State())
@@ -272,7 +281,7 @@ class ReaderViewModel @JvmOverloads constructor(
     private val chapterList by lazy {
         val manga = manga!!
         // SY -->
-        val (chapters, mangaMap) = runBlocking {
+        val (rawChapters, mangaMap) = runBlocking {
             if (manga.source == MERGED_SOURCE_ID) {
                 getMergedChaptersByMangaId.await(manga.id, applyFilter = true) to
                     state.value.mergedManga
@@ -292,8 +301,20 @@ class ReaderViewModel @JvmOverloads constructor(
         }
         // SY <--
 
-        val selectedChapter = chapters.find { it.id == chapterId }
+        val selectedChapter = rawChapters.find { it.id == chapterId }
             ?: error("Requested chapter of id $chapterId not found in chapter list")
+
+        // KMK -->
+        val chapters = if (manga.scanlatorPriorityMode) {
+            val priorities = runBlocking { getScanlatorPriorities.await(manga.id) }
+            rawChapters.deduplicateByScanlatorPriority(priorities).let { deduped ->
+                // The user may have manually opened a losing duplicate; keep it reachable.
+                if (deduped.any { it.id == selectedChapter.id }) deduped else deduped + selectedChapter
+            }
+        } else {
+            rawChapters
+        }
+        // KMK <--
 
         val chaptersForReader = when {
             (readerPreferences.skipRead().get() || readerPreferences.skipFiltered().get()) -> {

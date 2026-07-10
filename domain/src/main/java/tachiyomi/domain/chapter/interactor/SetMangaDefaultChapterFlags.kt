@@ -23,6 +23,9 @@ class SetMangaDefaultChapterFlags(
                     sortingMode = sortChapterBySourceOrNumber().get(),
                     sortingDirection = sortChapterByAscendingOrDescending().get(),
                     displayMode = displayChapterByNameOrNumber().get(),
+                    // KMK -->
+                    preservedFlags = manga.chapterFlags and Manga.CHAPTER_SCANLATOR_PRIORITY_MASK,
+                    // KMK <--
                 )
             }
         }

@@ -42,4 +42,12 @@ interface ChapterRepository {
 
     fun getScanlatorsByMergeIdAsFlow(mangaId: Long): Flow<List<String>>
     // SY <--
+
+    // KMK -->
+    suspend fun getScanlatorPriorities(mangaId: Long): List<String>
+
+    fun getScanlatorPrioritiesAsFlow(mangaId: Long): Flow<List<String>>
+
+    suspend fun setScanlatorPriorities(mangaId: Long, priorities: List<String>)
+    // KMK <--
 }

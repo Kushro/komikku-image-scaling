@@ -87,6 +87,9 @@ import exh.util.nullIfEmpty
 import exh.util.trimOrNull
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
+// KMK -->
+import kotlinx.collections.immutable.persistentListOf
+// KMK <--
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.async
@@ -129,6 +132,9 @@ import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.chapter.model.ChapterUpdate
 import tachiyomi.domain.chapter.model.NoChaptersException
 import tachiyomi.domain.chapter.service.calculateChapterGap
+// KMK -->
+import tachiyomi.domain.chapter.service.deduplicateByScanlatorPriority
+// KMK <--
 import tachiyomi.domain.chapter.service.getChapterSort
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.libraryUpdateError.interactor.DeleteLibraryUpdateErrors
@@ -143,9 +149,15 @@ import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.interactor.GetMangaWithChapters
 import tachiyomi.domain.manga.interactor.GetMergedMangaById
 import tachiyomi.domain.manga.interactor.GetMergedReferencesById
+// KMK -->
+import tachiyomi.domain.manga.interactor.GetScanlatorPriorities
+// KMK <--
 import tachiyomi.domain.manga.interactor.NetworkToLocalManga
 import tachiyomi.domain.manga.interactor.SetCustomMangaInfo
 import tachiyomi.domain.manga.interactor.SetMangaChapterFlags
+// KMK -->
+import tachiyomi.domain.manga.interactor.SetScanlatorPriorities
+// KMK <--
 import tachiyomi.domain.manga.interactor.UpdateMergedSettings
 import tachiyomi.domain.manga.model.CustomMangaInfo
 import tachiyomi.domain.manga.model.Manga
@@ -216,6 +228,10 @@ class MangaScreenModel(
     private val getAvailableScanlators: GetAvailableScanlators = Injekt.get(),
     private val getExcludedScanlators: GetExcludedScanlators = Injekt.get(),
     private val setExcludedScanlators: SetExcludedScanlators = Injekt.get(),
+    // KMK -->
+    private val getScanlatorPriorities: GetScanlatorPriorities = Injekt.get(),
+    private val setScanlatorPriorities: SetScanlatorPriorities = Injekt.get(),
+    // KMK <--
     private val setMangaChapterFlags: SetMangaChapterFlags = Injekt.get(),
     private val setMangaDefaultChapterFlags: SetMangaDefaultChapterFlags = Injekt.get(),
     private val setReadStatus: SetReadStatus = Injekt.get(),
@@ -405,6 +421,19 @@ class MangaScreenModel(
                 }
         }
 
+        // KMK -->
+        screenModelScope.launchIO {
+            getScanlatorPriorities.subscribe(mangaId)
+                .flowWithLifecycle(lifecycle)
+                .distinctUntilChanged()
+                .collectLatest { scanlatorPriorities ->
+                    updateSuccessState {
+                        it.copy(scanlatorPriorities = scanlatorPriorities.toImmutableList())
+                    }
+                }
+        }
+        // KMK <--
+
         screenModelScope.launchIO {
             getAvailableScanlators.subscribe(mangaId)
                 .flowWithLifecycle(lifecycle)
@@ -478,6 +507,9 @@ class MangaScreenModel(
                     }.toImmutableSet(),
                     // SY <--
                     excludedScanlators = getExcludedScanlators.await(mangaId).toImmutableSet(),
+                    // KMK -->
+                    scanlatorPriorities = getScanlatorPriorities.await(mangaId).toImmutableList(),
+                    // KMK <--
                     isRefreshingData = needRefreshInfo || needRefreshChapter,
                     dialog = null,
                     hideMissingChapters = libraryPreferences.hideMissingChapters().get(),
@@ -1970,6 +2002,21 @@ class MangaScreenModel(
         }
     }
 
+    // KMK -->
+    fun setScanlatorFilterSettings(
+        excludedScanlators: Set<String>,
+        priorityMode: Boolean,
+        priorities: List<String>,
+    ) {
+        val manga = successState?.manga ?: return
+        screenModelScope.launchIO {
+            setExcludedScanlators.await(mangaId, excludedScanlators)
+            setScanlatorPriorities.await(mangaId, priorities)
+            setMangaChapterFlags.awaitSetScanlatorPriorityMode(manga, priorityMode)
+        }
+    }
+    // KMK <--
+
     // SY -->
     fun showEditMangaInfoDialog() {
         mutableState.update { state ->
@@ -2013,6 +2060,9 @@ class MangaScreenModel(
             val chapters: List<ChapterList.Item>,
             val availableScanlators: ImmutableSet<String>,
             val excludedScanlators: ImmutableSet<String>,
+            // KMK -->
+            val scanlatorPriorities: ImmutableList<String> = persistentListOf(),
+            // KMK <--
             val trackingCount: Int = 0,
             val hasLoggedInTrackers: Boolean = false,
             val isRefreshingData: Boolean = false,
@@ -2059,7 +2109,13 @@ class MangaScreenModel(
             // KMK <--
 
             val processedChapters by lazy {
-                chapters.applyFilters(manga).toList()
+                chapters
+                    // KMK -->
+                    .let {
+                        if (manga.scanlatorPriorityMode) it.deduplicateByScanlatorPriority(scanlatorPriorities) else it
+                    }
+                    // KMK <--
+                    .applyFilters(manga).toList()
                     // KMK -->
                     // safe-guard some edge-cases where chapters are duplicated some how on a merged entry
                     .distinctBy { it.id }
@@ -2102,10 +2158,28 @@ class MangaScreenModel(
             }
 
             val scanlatorFilterActive: Boolean
-                get() = excludedScanlators.intersect(availableScanlators).isNotEmpty()
+                get() = excludedScanlators.intersect(availableScanlators).isNotEmpty() ||
+                    // KMK -->
+                    manga.scanlatorPriorityMode
+                    // KMK <--
 
             val filterActive: Boolean
                 get() = scanlatorFilterActive || manga.chaptersFiltered()
+
+            // KMK -->
+            /**
+             * Keeps a single [ChapterList.Item] per recognized chapter number, using [priorities]
+             * to pick the winner. See [tachiyomi.domain.chapter.service.deduplicateByScanlatorPriority].
+             */
+            private fun List<ChapterList.Item>.deduplicateByScanlatorPriority(
+                priorities: List<String>,
+            ): List<ChapterList.Item> {
+                val winnerIds = map { it.chapter }
+                    .deduplicateByScanlatorPriority(priorities)
+                    .mapTo(mutableSetOf()) { it.id }
+                return filter { it.id in winnerIds }
+            }
+            // KMK <--
 
             /**
              * Applies the view filters to the list of chapters obtained from the database.

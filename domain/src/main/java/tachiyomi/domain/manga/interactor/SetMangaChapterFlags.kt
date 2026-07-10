@@ -77,11 +77,17 @@ class SetMangaChapterFlags(
         sortingMode: Long,
         sortingDirection: Long,
         displayMode: Long,
+        // KMK -->
+        // Flags outside the masks set below (e.g. CHAPTER_SCANLATOR_PRIORITY_MASK) that must survive
+        // this bulk overwrite. Callers should pass the manga's current chapterFlags here.
+        preservedFlags: Long = 0L,
+        // KMK <--
     ): Boolean {
         return mangaRepository.update(
             MangaUpdate(
                 id = mangaId,
-                chapterFlags = 0L.setFlag(unreadFilter, Manga.CHAPTER_UNREAD_MASK)
+                chapterFlags = /* KMK --> */ preservedFlags /* KMK <-- */
+                    .setFlag(unreadFilter, Manga.CHAPTER_UNREAD_MASK)
                     .setFlag(downloadedFilter, Manga.CHAPTER_DOWNLOADED_MASK)
                     .setFlag(bookmarkedFilter, Manga.CHAPTER_BOOKMARKED_MASK)
                     .setFlag(sortingMode, Manga.CHAPTER_SORTING_MASK)
@@ -90,6 +96,18 @@ class SetMangaChapterFlags(
             ),
         )
     }
+
+    // KMK -->
+    suspend fun awaitSetScanlatorPriorityMode(manga: Manga, enabled: Boolean): Boolean {
+        val flag = if (enabled) Manga.CHAPTER_SCANLATOR_PRIORITY else 0L
+        return mangaRepository.update(
+            MangaUpdate(
+                id = manga.id,
+                chapterFlags = manga.chapterFlags.setFlag(flag, Manga.CHAPTER_SCANLATOR_PRIORITY_MASK),
+            ),
+        )
+    }
+    // KMK <--
 
     private fun Long.setFlag(flag: Long, mask: Long): Long {
         return this and mask.inv() or (flag and mask)

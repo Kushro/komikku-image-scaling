@@ -192,4 +192,27 @@ class ChapterRepositoryImpl(
         }
     }
     // SY <--
+
+    // KMK -->
+    override suspend fun getScanlatorPriorities(mangaId: Long): List<String> {
+        return handler.awaitList {
+            scanlator_prioritiesQueries.getScanlatorPrioritiesByMangaId(mangaId)
+        }
+    }
+
+    override fun getScanlatorPrioritiesAsFlow(mangaId: Long): Flow<List<String>> {
+        return handler.subscribeToList {
+            scanlator_prioritiesQueries.getScanlatorPrioritiesByMangaId(mangaId)
+        }
+    }
+
+    override suspend fun setScanlatorPriorities(mangaId: Long, priorities: List<String>) {
+        handler.await(inTransaction = true) {
+            scanlator_prioritiesQueries.removeAllByMangaId(mangaId)
+            priorities.forEachIndexed { index, scanlator ->
+                scanlator_prioritiesQueries.insert(mangaId, scanlator, index.toLong())
+            }
+        }
+    }
+    // KMK <--
 }

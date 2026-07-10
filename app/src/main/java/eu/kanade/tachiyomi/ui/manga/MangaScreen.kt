@@ -648,8 +648,14 @@ class MangaScreen(
             ScanlatorFilterDialog(
                 availableScanlators = successState.availableScanlators,
                 excludedScanlators = successState.excludedScanlators,
+                // KMK -->
+                priorityMode = successState.manga.scanlatorPriorityMode,
+                scanlatorPriorities = successState.scanlatorPriorities,
+                // KMK <--
                 onDismissRequest = { showScanlatorsDialog = false },
-                onConfirm = screenModel::setExcludedScanlators,
+                // KMK -->
+                onConfirm = screenModel::setScanlatorFilterSettings,
+                // KMK <--
             )
         }
     }
