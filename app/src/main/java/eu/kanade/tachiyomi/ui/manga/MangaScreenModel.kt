@@ -87,9 +87,7 @@ import exh.util.nullIfEmpty
 import exh.util.trimOrNull
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
-// KMK -->
 import kotlinx.collections.immutable.persistentListOf
-// KMK <--
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.async
@@ -132,9 +130,7 @@ import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.chapter.model.ChapterUpdate
 import tachiyomi.domain.chapter.model.NoChaptersException
 import tachiyomi.domain.chapter.service.calculateChapterGap
-// KMK -->
 import tachiyomi.domain.chapter.service.deduplicateByScanlatorPriority
-// KMK <--
 import tachiyomi.domain.chapter.service.getChapterSort
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.libraryUpdateError.interactor.DeleteLibraryUpdateErrors
@@ -149,15 +145,11 @@ import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.interactor.GetMangaWithChapters
 import tachiyomi.domain.manga.interactor.GetMergedMangaById
 import tachiyomi.domain.manga.interactor.GetMergedReferencesById
-// KMK -->
 import tachiyomi.domain.manga.interactor.GetScanlatorPriorities
-// KMK <--
 import tachiyomi.domain.manga.interactor.NetworkToLocalManga
 import tachiyomi.domain.manga.interactor.SetCustomMangaInfo
 import tachiyomi.domain.manga.interactor.SetMangaChapterFlags
-// KMK -->
 import tachiyomi.domain.manga.interactor.SetScanlatorPriorities
-// KMK <--
 import tachiyomi.domain.manga.interactor.UpdateMergedSettings
 import tachiyomi.domain.manga.model.CustomMangaInfo
 import tachiyomi.domain.manga.model.Manga
@@ -2161,7 +2153,7 @@ class MangaScreenModel(
                 get() = excludedScanlators.intersect(availableScanlators).isNotEmpty() ||
                     // KMK -->
                     manga.scanlatorPriorityMode
-                    // KMK <--
+            // KMK <--
 
             val filterActive: Boolean
                 get() = scanlatorFilterActive || manga.chaptersFiltered()

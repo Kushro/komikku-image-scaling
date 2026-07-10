@@ -5,16 +5,12 @@ import exh.source.isEhBasedManga
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.GetMergedChaptersByMangaId
 import tachiyomi.domain.chapter.model.Chapter
-// KMK -->
 import tachiyomi.domain.chapter.service.deduplicateByScanlatorPriority
-// KMK <--
 import tachiyomi.domain.chapter.service.getChapterSort
 import tachiyomi.domain.history.repository.HistoryRepository
 import tachiyomi.domain.manga.interactor.GetManga
-// KMK -->
 import tachiyomi.domain.manga.interactor.GetScanlatorPriorities
 import tachiyomi.domain.manga.model.Manga
-// KMK <--
 import kotlin.math.max
 
 class GetNextChapters(
