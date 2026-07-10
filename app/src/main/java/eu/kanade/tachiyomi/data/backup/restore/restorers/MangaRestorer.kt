@@ -100,6 +100,9 @@ class MangaRestorer(
                 history = backupManga.history,
                 tracks = backupManga.tracking,
                 excludedScanlators = backupManga.excludedScanlators,
+                // KMK -->
+                scanlatorPriorities = backupManga.scanlatorPriorities,
+                // KMK <--
                 // SY -->
                 mergedMangaReferences = backupManga.mergedMangaReferences,
                 flatMetadata = backupManga.flatMetadata,
@@ -341,6 +344,9 @@ class MangaRestorer(
         history: List<BackupHistory>,
         tracks: List<BackupTracking>,
         excludedScanlators: List<String>,
+        // KMK -->
+        scanlatorPriorities: List<String>,
+        // KMK <--
         // SY -->
         mergedMangaReferences: List<BackupMergedMangaReference>,
         flatMetadata: BackupFlatMetadata?,
@@ -352,6 +358,9 @@ class MangaRestorer(
         restoreTracking(manga, tracks)
         restoreHistory(manga, history)
         restoreExcludedScanlators(manga, excludedScanlators)
+        // KMK -->
+        restoreScanlatorPriorities(manga, scanlatorPriorities)
+        // KMK <--
         updateManga.awaitUpdateFetchInterval(manga, now, currentFetchWindow)
         // SY -->
         restoreMergedMangaReferencesForManga(manga.id, mergedMangaReferences)
@@ -619,4 +628,27 @@ class MangaRestorer(
             }
         }
     }
+
+    // KMK -->
+    /**
+     * Restores the scanlator priority order for the manga. Unlike excluded scanlators, order
+     * matters here, so we only seed it from the backup when nothing is configured locally yet
+     * (never overwrite a priority order the user may have already customized on this device).
+     *
+     * @param manga the manga whose scanlator priorities have to be restored.
+     * @param scanlatorPriorities the scanlator priority order to restore.
+     */
+    private suspend fun restoreScanlatorPriorities(manga: Manga, scanlatorPriorities: List<String>) {
+        if (scanlatorPriorities.isEmpty()) return
+        val existingPriorities = handler.awaitList {
+            scanlator_prioritiesQueries.getScanlatorPrioritiesByMangaId(manga.id)
+        }
+        if (existingPriorities.isNotEmpty()) return
+        handler.await(inTransaction = true) {
+            scanlatorPriorities.forEachIndexed { index, scanlator ->
+                scanlator_prioritiesQueries.insert(manga.id, scanlator, index.toLong())
+            }
+        }
+    }
+    // KMK <--
 }

@@ -71,6 +71,12 @@ class MangaBackupCreator(
             excluded_scanlatorsQueries.getExcludedScanlatorsByMangaId(manga.id)
         }
 
+        // KMK -->
+        mangaObject.scanlatorPriorities = handler.awaitList {
+            scanlator_prioritiesQueries.getScanlatorPrioritiesByMangaId(manga.id)
+        }
+        // KMK <--
+
         if (options.chapters) {
             // Backup all the chapters
             handler.awaitList {

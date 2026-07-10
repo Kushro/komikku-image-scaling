@@ -1,0 +1,12 @@
+-- KMK --> Add scanlator priority ordering per manga, used for chapter deduplication
+CREATE TABLE scanlator_priorities(
+    manga_id INTEGER NOT NULL,
+    scanlator TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    PRIMARY KEY(manga_id, scanlator),
+    FOREIGN KEY(manga_id) REFERENCES mangas (_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX idx_scanlator_priorities_manga_id ON scanlator_priorities(manga_id);
+-- KMK <--

@@ -108,6 +108,11 @@ data class Manga(
         return chapterFlags and CHAPTER_SORT_DIR_MASK == CHAPTER_SORT_DESC
     }
 
+    // KMK -->
+    val scanlatorPriorityMode: Boolean
+        get() = chapterFlags and CHAPTER_SCANLATOR_PRIORITY_MASK == CHAPTER_SCANLATOR_PRIORITY
+    // KMK <--
+
     companion object {
         // Generic filter that does not filter anything
         const val SHOW_ALL = 0x00000000L
@@ -137,6 +142,11 @@ data class Manga(
         const val CHAPTER_DISPLAY_NAME = 0x00000000L
         const val CHAPTER_DISPLAY_NUMBER = 0x00100000L
         const val CHAPTER_DISPLAY_MASK = 0x00100000L
+
+        // KMK -->
+        const val CHAPTER_SCANLATOR_PRIORITY = 0x00200000L
+        const val CHAPTER_SCANLATOR_PRIORITY_MASK = 0x00200000L
+        // KMK <--
 
         fun create() = Manga(
             id = -1L,

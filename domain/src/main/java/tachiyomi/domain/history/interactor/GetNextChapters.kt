@@ -5,9 +5,12 @@ import exh.source.isEhBasedManga
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.GetMergedChaptersByMangaId
 import tachiyomi.domain.chapter.model.Chapter
+import tachiyomi.domain.chapter.service.deduplicateByScanlatorPriority
 import tachiyomi.domain.chapter.service.getChapterSort
 import tachiyomi.domain.history.repository.HistoryRepository
 import tachiyomi.domain.manga.interactor.GetManga
+import tachiyomi.domain.manga.interactor.GetScanlatorPriorities
+import tachiyomi.domain.manga.model.Manga
 import kotlin.math.max
 
 class GetNextChapters(
@@ -17,6 +20,9 @@ class GetNextChapters(
     // SY <--
     private val getManga: GetManga,
     private val historyRepository: HistoryRepository,
+    // KMK -->
+    private val getScanlatorPriorities: GetScanlatorPriorities,
+    // KMK <--
 ) {
 
     suspend fun await(onlyUnread: Boolean = true): List<Chapter> {
@@ -24,12 +30,22 @@ class GetNextChapters(
         return await(history.mangaId, history.chapterId, onlyUnread)
     }
 
+    // KMK -->
+    private suspend fun List<Chapter>.deduplicateIfNeeded(manga: Manga): List<Chapter> {
+        if (!manga.scanlatorPriorityMode) return this
+        return deduplicateByScanlatorPriority(getScanlatorPriorities.await(manga.id))
+    }
+    // KMK <--
+
     suspend fun await(mangaId: Long, onlyUnread: Boolean = true): List<Chapter> {
         val manga = getManga.await(mangaId) ?: return emptyList()
 
         // SY -->
         if (manga.source == MERGED_SOURCE_ID) {
             val chapters = getMergedChaptersByMangaId.await(mangaId, applyFilter = true)
+                // KMK -->
+                .deduplicateIfNeeded(manga)
+                // KMK <--
                 .sortedWith(getChapterSort(manga, sortDescending = false))
 
             return if (onlyUnread) {
@@ -40,6 +56,9 @@ class GetNextChapters(
         }
         if (manga.isEhBasedManga()) {
             val chapters = getChaptersByMangaId.await(mangaId, applyFilter = true)
+                // KMK -->
+                .deduplicateIfNeeded(manga)
+                // KMK <--
                 .sortedWith(getChapterSort(manga, sortDescending = false))
 
             return if (onlyUnread) {
@@ -51,6 +70,9 @@ class GetNextChapters(
         // SY <--
 
         val chapters = getChaptersByMangaId.await(mangaId, applyFilter = true)
+            // KMK -->
+            .deduplicateIfNeeded(manga)
+            // KMK <--
             .sortedWith(getChapterSort(manga, sortDescending = false))
 
         return if (onlyUnread) {

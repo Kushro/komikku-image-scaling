@@ -299,4 +299,9 @@
     <string name="reader_remote_status_downloading">Downloading result…</string>
     <string name="reader_remote_status_done">Enhancement complete</string>
     <string name="reader_remote_status_failed">Remote enhancement failed</string>
+    <!-- Scanlator priority -->
+    <string name="scanlator_filter_mode_priority">Prioritized mode</string>
+    <string name="scanlator_priority_explanation">Only one version of each chapter will be shown, taken from the highest-priority group that has it. Reading progress of hidden duplicates is kept.</string>
+    <string name="scanlator_priority_section">Priority order</string>
+    <string name="scanlator_unknown">Unknown</string>
 </resources>
