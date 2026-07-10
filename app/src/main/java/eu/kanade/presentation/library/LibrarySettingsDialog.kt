@@ -436,6 +436,8 @@ private fun groupSortStringRes(sort: LibraryGroupSort): StringResource {
         LibraryGroupSort.NATURAL -> KMR.strings.group_sort_natural
         LibraryGroupSort.ALPHABETICAL -> KMR.strings.group_sort_alphabetical
         LibraryGroupSort.ITEM_COUNT -> KMR.strings.group_sort_count
+        LibraryGroupSort.LATEST_CHAPTER -> KMR.strings.group_sort_latest_chapter
+        LibraryGroupSort.DATE_ADDED -> KMR.strings.group_sort_date_added
     }
 }
 

@@ -24,6 +24,19 @@ class LibraryGroupingTest {
     }
 
     @Test
+    fun `round-trips the date-based sort criteria`() {
+        val grouping = LibraryGrouping(
+            listOf(LibraryGroupLayer(LibraryGroupType.AUTHOR, LibraryGroupSort.LATEST_CHAPTER, ascending = false)),
+        )
+        LibraryGrouping.deserialize(grouping.serialize()) shouldBe grouping
+
+        val grouping2 = LibraryGrouping(
+            listOf(LibraryGroupLayer(LibraryGroupType.GENRE, LibraryGroupSort.DATE_ADDED, ascending = true)),
+        )
+        LibraryGrouping.deserialize(grouping2.serialize()) shouldBe grouping2
+    }
+
+    @Test
     fun `round-trips two layers preserving order`() {
         val grouping = LibraryGrouping(
             listOf(

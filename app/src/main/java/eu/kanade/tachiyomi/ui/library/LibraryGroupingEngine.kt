@@ -90,6 +90,8 @@ class LibraryGroupingEngine(
             LibraryGroupSort.NATURAL -> compareBy { it: GroupBucket -> it.order }
             LibraryGroupSort.ALPHABETICAL -> compareBy(String.CASE_INSENSITIVE_ORDER) { it: GroupBucket -> it.title }
             LibraryGroupSort.ITEM_COUNT -> compareBy { it: GroupBucket -> it.items.size }
+            LibraryGroupSort.LATEST_CHAPTER -> compareBy { it: GroupBucket -> it.latestChapterDate }
+            LibraryGroupSort.DATE_ADDED -> compareBy { it: GroupBucket -> it.dateAdded }
         }
         return if (layer.ascending) buckets.sortedWith(comparator) else buckets.sortedWith(comparator.reversed())
     }
@@ -270,7 +272,13 @@ class LibraryGroupingEngine(
 
     private data class GroupKey(val id: String, val title: String, val naturalOrder: Long)
 
-    private data class GroupBucket(val id: String, val title: String, val order: Long, val items: List<LibraryItem>)
+    private data class GroupBucket(val id: String, val title: String, val order: Long, val items: List<LibraryItem>) {
+        /** Most recent chapter upload date among this section's manga (0 if none). */
+        val latestChapterDate: Long by lazy { items.maxOfOrNull { it.libraryManga.latestUpload } ?: 0L }
+
+        /** Most recent date-added-to-library among this section's manga (0 if none). */
+        val dateAdded: Long by lazy { items.maxOfOrNull { it.libraryManga.manga.dateAdded } ?: 0L }
+    }
 
     companion object {
         private const val NONE_KEY = "__none__"
