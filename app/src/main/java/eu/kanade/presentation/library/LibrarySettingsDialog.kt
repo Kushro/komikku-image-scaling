@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import dev.icerock.moko.resources.StringResource
@@ -35,17 +35,17 @@ import eu.kanade.presentation.category.visualName
 import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.presentation.more.settings.widget.TriStateListDialog
-import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.ui.library.LibrarySettingsScreenModel
 import eu.kanade.tachiyomi.util.system.isReleaseBuildType
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.map
 import tachiyomi.core.common.preference.TriState
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.library.model.LibraryDisplayMode
-import tachiyomi.domain.library.model.LibraryGroup
+import tachiyomi.domain.library.model.LibraryGroupLayer
+import tachiyomi.domain.library.model.LibraryGroupSort
+import tachiyomi.domain.library.model.LibraryGroupType
 import tachiyomi.domain.library.model.LibrarySort
 import tachiyomi.domain.library.model.sort
 import tachiyomi.domain.library.service.LibraryPreferences
@@ -55,13 +55,13 @@ import tachiyomi.i18n.sy.SYMR
 import tachiyomi.presentation.core.components.BaseSortItem
 import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.HeadingItem
-import tachiyomi.presentation.core.components.IconItem
 import tachiyomi.presentation.core.components.SettingsChipRow
 import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.SliderItem
 import tachiyomi.presentation.core.components.SortItem
 import tachiyomi.presentation.core.components.TriStateItem
 import tachiyomi.presentation.core.components.material.TextButton
+import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
 
@@ -224,16 +224,18 @@ private fun ColumnScope.SortPage(
     val trackers by screenModel.trackersFlow.collectAsState()
     // SY -->
     val globalSortMode by screenModel.libraryPreferences.sortingMode().collectAsState()
-    val sortingMode = if (screenModel.grouping == LibraryGroup.BY_DEFAULT) {
+    // KMK -->
+    val sortingMode = if (!screenModel.ungrouped) {
         category.sort.type
     } else {
         globalSortMode.type
     }
-    val sortDescending = if (screenModel.grouping == LibraryGroup.BY_DEFAULT) {
+    val sortDescending = if (!screenModel.ungrouped) {
         !category.sort.isAscending
     } else {
         !globalSortMode.isAscending
     }
+    // KMK <--
     val hasSortTags by remember {
         screenModel.libraryPreferences.sortTagsForLibrary().changes()
             .map { it.isNotEmpty() }
@@ -408,20 +410,41 @@ private fun ColumnScope.DisplayPage(
     )
 }
 
-// SY -->
-data class GroupMode(
-    val int: Int,
-    val nameRes: StringResource,
-    val drawableRes: Int,
-)
-
-private fun groupTypeDrawableRes(type: Int): Int {
+// KMK -->
+private fun groupTypeStringRes(type: LibraryGroupType): StringResource {
     return when (type) {
-        LibraryGroup.BY_STATUS -> R.drawable.ic_progress_clock_24dp
-        LibraryGroup.BY_TRACK_STATUS -> R.drawable.ic_sync_24dp
-        LibraryGroup.BY_SOURCE -> R.drawable.ic_browse_filled_24dp
-        LibraryGroup.UNGROUPED -> R.drawable.ic_ungroup_24dp
-        else -> R.drawable.ic_label_24dp
+        LibraryGroupType.SOURCE -> KMR.strings.group_by_source
+        LibraryGroupType.STATUS -> KMR.strings.group_by_status
+        LibraryGroupType.TRACK_STATUS -> KMR.strings.group_by_track_status
+        LibraryGroupType.GENRE -> KMR.strings.group_by_genre
+        LibraryGroupType.TRACKER_RATING -> KMR.strings.group_by_tracker_rating
+        LibraryGroupType.TITLE_DUPLICATES -> KMR.strings.group_by_title_duplicates
+        LibraryGroupType.LANGUAGE -> KMR.strings.group_by_language
+        LibraryGroupType.AUTHOR -> KMR.strings.group_by_author
+        LibraryGroupType.ARTIST -> KMR.strings.group_by_artist
+        LibraryGroupType.READ_PROGRESS -> KMR.strings.group_by_read_progress
+        LibraryGroupType.DOWNLOAD_STATE -> KMR.strings.group_by_download_state
+        LibraryGroupType.DATE_ADDED -> KMR.strings.group_by_date_added
+        LibraryGroupType.LAST_READ -> KMR.strings.group_by_last_read
+        LibraryGroupType.LATEST_CHAPTER -> KMR.strings.group_by_latest_chapter
+        LibraryGroupType.CATEGORY -> KMR.strings.group_by_category
+    }
+}
+
+private fun groupSortStringRes(sort: LibraryGroupSort): StringResource {
+    return when (sort) {
+        LibraryGroupSort.NATURAL -> KMR.strings.group_sort_natural
+        LibraryGroupSort.ALPHABETICAL -> KMR.strings.group_sort_alphabetical
+        LibraryGroupSort.ITEM_COUNT -> KMR.strings.group_sort_count
+    }
+}
+
+/** GENRE and TITLE_DUPLICATES both key on the manga's genres/title in ways that don't compose well. */
+private fun incompatibleGroupTypes(type: LibraryGroupType): Set<LibraryGroupType> {
+    return when (type) {
+        LibraryGroupType.GENRE -> setOf(LibraryGroupType.TITLE_DUPLICATES)
+        LibraryGroupType.TITLE_DUPLICATES -> setOf(LibraryGroupType.GENRE)
+        else -> emptySet()
     }
 }
 
@@ -432,38 +455,114 @@ private fun ColumnScope.GroupPage(
     hasCategories: Boolean,
 ) {
     val trackers by screenModel.trackersFlow.collectAsState()
-    val groups = remember(hasCategories, trackers) {
-        buildList {
-            add(LibraryGroup.BY_DEFAULT)
-            add(LibraryGroup.BY_SOURCE)
-            add(LibraryGroup.BY_STATUS)
-            if (trackers.isNotEmpty()) {
-                add(LibraryGroup.BY_TRACK_STATUS)
-            }
-            if (hasCategories || screenModel.grouping == LibraryGroup.UNGROUPED) {
-                add(LibraryGroup.UNGROUPED)
-            }
-        }.map {
-            GroupMode(
-                it,
-                LibraryGroup.groupTypeStringRes(it),
-                groupTypeDrawableRes(it),
-            )
-        }.toImmutableList()
+    val grouping = screenModel.libraryGrouping
+    val primaryLayer = grouping.layers.getOrNull(0)
+    val secondaryLayer = grouping.layers.getOrNull(1)
+
+    if (hasCategories || screenModel.ungrouped) {
+        CheckboxItem(
+            label = stringResource(KMR.strings.group_ignore_categories),
+            checked = screenModel.ungrouped,
+            onClick = { screenModel.setUngrouped(!screenModel.ungrouped) },
+        )
     }
 
-    groups.fastForEach {
-        IconItem(
-            label = stringResource(it.nameRes),
-            icon = painterResource(it.drawableRes),
-            selected = it.int == screenModel.grouping,
+    val availableTypes = remember(trackers.isEmpty(), hasCategories) {
+        LibraryGroupType.entries.filter {
+            (it != LibraryGroupType.TRACK_STATUS || trackers.isNotEmpty()) &&
+                (it != LibraryGroupType.TRACKER_RATING || trackers.isNotEmpty()) &&
+                (it != LibraryGroupType.CATEGORY || hasCategories)
+        }
+    }
+
+    HeadingItem(KMR.strings.group_layer_primary)
+    GroupTypeSelector(
+        types = availableTypes,
+        selected = primaryLayer?.type,
+        onSelect = { type ->
+            screenModel.setGroupingLayers(
+                if (type == null) emptyList() else listOf(LibraryGroupLayer(type)),
+            )
+        },
+    )
+
+    if (primaryLayer != null) {
+        GroupSortSelector(
+            layer = primaryLayer,
+            onChange = { updated -> screenModel.setGroupingLayers(listOfNotNull(updated, secondaryLayer)) },
+        )
+
+        val secondaryExcluded = setOf(primaryLayer.type) + incompatibleGroupTypes(primaryLayer.type)
+        HeadingItem(KMR.strings.group_layer_secondary)
+        GroupTypeSelector(
+            types = availableTypes.filter { it !in secondaryExcluded },
+            selected = secondaryLayer?.type,
+            onSelect = { type ->
+                screenModel.setGroupingLayers(listOfNotNull(primaryLayer, type?.let { LibraryGroupLayer(it) }))
+            },
+        )
+
+        if (secondaryLayer != null) {
+            GroupSortSelector(
+                layer = secondaryLayer,
+                onChange = { updated -> screenModel.setGroupingLayers(listOf(primaryLayer, updated)) },
+            )
+        }
+
+        if (grouping.layers.any { it.type == LibraryGroupType.GENRE }) {
+            SliderItem(
+                value = screenModel.genreGroupMinSize,
+                valueRange = 1..10,
+                label = stringResource(KMR.strings.group_genre_min_size),
+                valueString = screenModel.genreGroupMinSize.toString(),
+                onChange = screenModel::setGenreGroupMinSize,
+            )
+        }
+    }
+}
+
+@Composable
+private fun GroupTypeSelector(
+    types: List<LibraryGroupType>,
+    selected: LibraryGroupType?,
+    onSelect: (LibraryGroupType?) -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal),
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+    ) {
+        FilterChip(
+            selected = selected == null,
+            onClick = { onSelect(null) },
+            label = { Text(stringResource(KMR.strings.group_layer_none)) },
+        )
+        types.fastForEach { type ->
+            FilterChip(
+                selected = selected == type,
+                onClick = { onSelect(type) },
+                label = { Text(stringResource(groupTypeStringRes(type))) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun GroupSortSelector(
+    layer: LibraryGroupLayer,
+    onChange: (LibraryGroupLayer) -> Unit,
+) {
+    LibraryGroupSort.entries.forEach { sortBy ->
+        SortItem(
+            label = stringResource(groupSortStringRes(sortBy)),
+            sortDescending = (!layer.ascending).takeIf { layer.sortBy == sortBy },
             onClick = {
-                screenModel.setGrouping(it.int)
+                val ascending = if (layer.sortBy == sortBy) !layer.ascending else true
+                onChange(layer.copy(sortBy = sortBy, ascending = ascending))
             },
         )
     }
 }
-// SY <--
+// KMK <--
 
 // KMK -->
 @Composable

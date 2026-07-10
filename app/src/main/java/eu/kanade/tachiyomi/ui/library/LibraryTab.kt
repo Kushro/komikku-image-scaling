@@ -191,6 +191,12 @@ data object LibraryTab : Tab {
                     },
                     // For scroll overlay when no tab
                     scrollBehavior = scrollBehavior.takeIf { !state.showCategoryTabs },
+                    // KMK -->
+                    onClickToggleGroupsCollapse = screenModel::toggleCollapseAllGroups.takeIf {
+                        state.activeCategory?.let { category -> state.allGroupKeysForCategory(category).isNotEmpty() } == true
+                    },
+                    groupsCollapsed = state.activeCategory?.let { state.allGroupsCollapsedForCategory(it) } == true,
+                    // KMK <--
                 )
             },
             bottomBar = {
@@ -339,7 +345,11 @@ data object LibraryTab : Tab {
                         getItemCountForCategory = { state.getItemCountForCategory(it) },
                         getDisplayMode = { screenModel.getDisplayMode() },
                         getColumnsForOrientation = { screenModel.getColumnsForOrientation(it) },
-                        getItemsForCategory = { state.getItemsForCategory(it) },
+                        // KMK -->
+                        getItemsForCategory = { state.getUiItemsForCategory(it) },
+                        onToggleGroup = screenModel::toggleGroupCollapsed,
+                        onSelectGroup = screenModel::selectSection,
+                        // KMK <--
                     )
                 }
             }

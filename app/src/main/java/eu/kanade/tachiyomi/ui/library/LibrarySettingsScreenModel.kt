@@ -16,6 +16,8 @@ import tachiyomi.domain.category.interactor.SetDisplayMode
 import tachiyomi.domain.category.interactor.SetSortModeForCategory
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.library.model.LibraryDisplayMode
+import tachiyomi.domain.library.model.LibraryGroupLayer
+import tachiyomi.domain.library.model.LibraryGrouping
 import tachiyomi.domain.library.model.LibrarySort
 import tachiyomi.domain.library.service.LibraryPreferences
 import uy.kohesive.injekt.Injekt
@@ -37,10 +39,30 @@ class LibrarySettingsScreenModel(
             initialValue = trackerManager.loggedInTrackers(),
         )
 
-    // SY -->
-    val grouping by libraryPreferences.groupLibraryBy().asState(screenModelScope)
+    // KMK -->
+    val ungrouped by libraryPreferences.libraryUngrouped().asState(screenModelScope)
+    val libraryGrouping by libraryPreferences.libraryGrouping().asState(screenModelScope)
+    val genreGroupMinSize by libraryPreferences.libraryGenreGroupMinSize().asState(screenModelScope)
 
-    // SY <--
+    fun setUngrouped(value: Boolean) {
+        screenModelScope.launchIO {
+            libraryPreferences.libraryUngrouped().set(value)
+        }
+    }
+
+    fun setGroupingLayers(layers: List<LibraryGroupLayer>) {
+        screenModelScope.launchIO {
+            libraryPreferences.libraryGrouping().set(LibraryGrouping(layers))
+        }
+    }
+
+    fun setGenreGroupMinSize(size: Int) {
+        screenModelScope.launchIO {
+            libraryPreferences.libraryGenreGroupMinSize().set(size)
+        }
+    }
+    // KMK <--
+
     fun toggleFilter(preference: (LibraryPreferences) -> Preference<TriState>) {
         preference(libraryPreferences).getAndSet {
             it.next()
@@ -60,12 +82,4 @@ class LibrarySettingsScreenModel(
             setSortModeForCategory.await(category, mode, direction)
         }
     }
-
-    // SY -->
-    fun setGrouping(grouping: Int) {
-        screenModelScope.launchIO {
-            libraryPreferences.groupLibraryBy().set(grouping)
-        }
-    }
-    // SY <--
 }

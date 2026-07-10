@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import eu.kanade.tachiyomi.ui.library.LibraryUiItem
 import tachiyomi.presentation.core.components.FastScrollLazyVerticalGrid
 import tachiyomi.presentation.core.util.plus
 
@@ -44,3 +45,26 @@ internal fun LazyGridScope.globalSearchItem(
         }
     }
 }
+
+// KMK -->
+internal fun LazyGridScope.groupHeaderItem(
+    header: LibraryUiItem.Header,
+    onToggle: (String) -> Unit,
+    onLongClick: (String) -> Unit,
+) {
+    item(
+        key = "header-${header.key}",
+        span = { GridItemSpan(maxLineSpan) },
+        contentType = { "library_group_header" },
+    ) {
+        LibraryGroupHeader(
+            title = header.title,
+            count = header.count,
+            level = header.level,
+            collapsed = header.collapsed,
+            onToggle = { onToggle(header.key) },
+            onLongClick = { onLongClick(header.key) },
+        )
+    }
+}
+// KMK <--

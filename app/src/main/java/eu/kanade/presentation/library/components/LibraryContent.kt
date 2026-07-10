@@ -16,7 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import eu.kanade.core.preference.PreferenceMutableState
-import eu.kanade.tachiyomi.ui.library.LibraryItem
+import eu.kanade.tachiyomi.ui.library.LibraryUiItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tachiyomi.domain.category.model.Category
@@ -47,7 +47,11 @@ fun LibraryContent(
     getItemCountForCategory: (Category) -> Int?,
     getDisplayMode: (Int) -> PreferenceMutableState<LibraryDisplayMode>,
     getColumnsForOrientation: (Boolean) -> PreferenceMutableState<Int>,
-    getItemsForCategory: (Category) -> List<LibraryItem>,
+    // KMK -->
+    getItemsForCategory: (Category) -> List<LibraryUiItem>,
+    onToggleGroup: (String) -> Unit,
+    onSelectGroup: (String) -> Unit,
+    // KMK <--
 ) {
     Column(
         modifier = Modifier.padding(
@@ -112,6 +116,8 @@ fun LibraryContent(
                 getDisplayMode = getDisplayMode,
                 getColumnsForOrientation = getColumnsForOrientation,
                 getItemsForCategory = getItemsForCategory,
+                onToggleGroup = onToggleGroup,
+                onSelectGroup = onSelectGroup,
                 onClickManga = { category, manga ->
                     if (selection.isNotEmpty()) {
                         onToggleSelection(category, manga)

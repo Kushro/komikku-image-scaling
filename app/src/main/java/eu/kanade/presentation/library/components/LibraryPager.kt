@@ -19,7 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import eu.kanade.core.preference.PreferenceMutableState
-import eu.kanade.tachiyomi.ui.library.LibraryItem
+import eu.kanade.tachiyomi.ui.library.LibraryUiItem
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.domain.library.model.LibraryManga
@@ -38,7 +38,11 @@ fun LibraryPager(
     getCategoryForPage: (Int) -> Category,
     getDisplayMode: (Int) -> PreferenceMutableState<LibraryDisplayMode>,
     getColumnsForOrientation: (Boolean) -> PreferenceMutableState<Int>,
-    getItemsForCategory: (Category) -> List<LibraryItem>,
+    // KMK -->
+    getItemsForCategory: (Category) -> List<LibraryUiItem>,
+    onToggleGroup: (String) -> Unit,
+    onSelectGroup: (String) -> Unit,
+    // KMK <--
     onClickManga: (Category, LibraryManga) -> Unit,
     onLongClickManga: (Category, LibraryManga) -> Unit,
     onClickContinueReading: ((LibraryManga) -> Unit)?,
@@ -89,6 +93,8 @@ fun LibraryPager(
                     onClickContinueReading = onClickContinueReading,
                     searchQuery = searchQuery,
                     onGlobalSearchClicked = onGlobalSearchClicked,
+                    onToggleGroup = onToggleGroup,
+                    onSelectGroup = onSelectGroup,
                 )
             }
             LibraryDisplayMode.CompactGrid, LibraryDisplayMode.CoverOnlyGrid -> {
@@ -103,6 +109,8 @@ fun LibraryPager(
                     onClickContinueReading = onClickContinueReading,
                     searchQuery = searchQuery,
                     onGlobalSearchClicked = onGlobalSearchClicked,
+                    onToggleGroup = onToggleGroup,
+                    onSelectGroup = onSelectGroup,
                 )
             }
             LibraryDisplayMode.ComfortableGrid -> {
@@ -116,6 +124,8 @@ fun LibraryPager(
                     onClickContinueReading = onClickContinueReading,
                     searchQuery = searchQuery,
                     onGlobalSearchClicked = onGlobalSearchClicked,
+                    onToggleGroup = onToggleGroup,
+                    onSelectGroup = onSelectGroup,
                 )
             }
             // KMK -->
@@ -130,6 +140,8 @@ fun LibraryPager(
                     onClickContinueReading = onClickContinueReading,
                     searchQuery = searchQuery,
                     onGlobalSearchClicked = onGlobalSearchClicked,
+                    onToggleGroup = onToggleGroup,
+                    onSelectGroup = onSelectGroup,
                     usePanoramaCover = true,
                 )
             }
