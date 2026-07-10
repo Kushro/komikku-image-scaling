@@ -7,6 +7,7 @@ import tachiyomi.core.common.preference.getEnum
 import tachiyomi.domain.library.model.GroupLibraryMode
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.domain.library.model.LibraryGroup
+import tachiyomi.domain.library.model.LibraryGrouping
 import tachiyomi.domain.library.model.LibrarySort
 import tachiyomi.domain.manga.model.Manga
 
@@ -269,6 +270,21 @@ class LibraryPreferences(
     fun groupLibraryBy() = preferenceStore.getInt("group_library_by", LibraryGroup.BY_DEFAULT)
 
     // SY <--
+
+    // KMK -->
+    fun libraryGrouping() = preferenceStore.getObjectFromString(
+        "library_grouping_layers",
+        LibraryGrouping.default,
+        LibraryGrouping.Serializer::serialize,
+        LibraryGrouping.Serializer::deserialize,
+    )
+
+    fun libraryUngrouped() = preferenceStore.getBoolean("library_ungrouped", false)
+
+    fun collapsedLibraryGroups() = preferenceStore.getStringSet("library_collapsed_groups", emptySet())
+
+    fun libraryGenreGroupMinSize() = preferenceStore.getInt("library_genre_group_min_size", 3)
+    // KMK <--
 
     companion object {
         const val DEVICE_ONLY_ON_WIFI = "wifi"
