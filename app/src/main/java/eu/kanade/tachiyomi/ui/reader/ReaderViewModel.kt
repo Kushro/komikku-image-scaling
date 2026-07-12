@@ -51,6 +51,7 @@ import eu.kanade.tachiyomi.util.lang.byteSize
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.DiskUtil.MAX_FILE_NAME_BYTES
 import eu.kanade.tachiyomi.util.storage.cacheImageDir
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import exh.metadata.metadata.RaisedSearchMetadata
@@ -789,8 +790,19 @@ class ReaderViewModel @JvmOverloads constructor(
     private var lastSelectedPages: List<ReaderPage>? = null
 
     /**
-     * Enqueues the current page and the next [ReaderPreferences.realCuganPreloadSize] pages for
-     * background enhancement (on-device or remote), so they are cached before the user reaches them.
+     * Effective preload window: the configured [ReaderPreferences.realCuganPreloadPercent] applied
+     * to the chapter's total page count. This is the single source of truth so the prefetch window
+     * and the status-overlay counter always agree. Returns 0 when preloading is off (percent <= 0).
+     */
+    private fun effectivePreloadWindow(totalPages: Int): Int {
+        val percent = readerPreferences.realCuganPreloadPercent().get()
+        if (percent <= 0 || totalPages <= 0) return 0
+        return kotlin.math.ceil(totalPages * percent / 100.0).toInt().coerceAtLeast(1)
+    }
+
+    /**
+     * Enqueues the current page and the next [effectivePreloadWindow] pages for background
+     * enhancement (on-device or remote), so they are cached before the user reaches them.
      * No-op when enhancement is off or "only upscale when downloading" is enabled (no live work).
      */
     private fun prefetchEnhancement(currentPage: ReaderPage, pages: List<ReaderPage>) {
@@ -800,7 +812,7 @@ class ReaderViewModel @JvmOverloads constructor(
         lastSelectedPages = pages
 
         val mode = readerPreferences.enhancementMode().get()
-        if (mode == 0 || readerPreferences.enhanceOnDownload().get()) return
+        if (mode == EnhancementMode.NONE || readerPreferences.enhanceOnDownload().get()) return
 
         val currentIndex = pages.indexOf(currentPage)
         if (currentIndex == -1) return
@@ -810,7 +822,7 @@ class ReaderViewModel @JvmOverloads constructor(
         // Cancel any in-flight prefetch from a previous page so stale waiters don't pile up.
         prefetchJob?.cancel()
 
-        val count = readerPreferences.realCuganPreloadSize().get()
+        val count = effectivePreloadWindow(pages.size)
         // Reading each page's source stream is blocking IO, so build/enqueue requests off the main thread.
         prefetchJob = viewModelScope.launchIO {
             val context = Injekt.get<Application>()
@@ -838,16 +850,10 @@ class ReaderViewModel @JvmOverloads constructor(
      * (note: live mode pins inputScale=100), so cache-hit checks here line up with reality.
      */
     private fun currentEnhancementConfigHash(): String {
-        return if (readerPreferences.enhancementMode().get() == 3) {
-            ImageEnhancementCache.getConfigHash(
-                noise = 0,
-                scale = 0,
-                inputScale = 100,
-                model = -1,
-                maxWidth = 0,
-                maxHeight = 0,
-                resizeEnabled = false,
-                remoteHash = "${readerPreferences.remoteUpscalerHost().get()}:${readerPreferences.remoteUpscalerPort().get()}",
+        return if (readerPreferences.enhancementMode().get() == EnhancementMode.REMOTE) {
+            ImageEnhancementCache.getRemoteConfigHash(
+                readerPreferences.remoteUpscalerHost().get(),
+                readerPreferences.remoteUpscalerPort().get(),
             )
         } else {
             ImageEnhancementCache.getConfigHash(
@@ -863,7 +869,7 @@ class ReaderViewModel @JvmOverloads constructor(
     }
 
     /**
-     * Counts, for the [ReaderPreferences.realCuganPreloadSize] pages *after* the current one, how
+     * Counts, for the [effectivePreloadWindow] pages *after* the current one, how
      * many have finished upscaling (cached, skipped, or baked-in at download) vs. are still queued/
      * processing. Returns null when live preloading doesn't apply (enhancement off, "only upscale
      * when downloading", or reading an already-upscaled downloaded chapter), so the overlay hides.
@@ -871,7 +877,7 @@ class ReaderViewModel @JvmOverloads constructor(
     private fun computePreloadStatus(currentPage: ReaderPage, pages: List<ReaderPage>): PreloadStatus? {
         val mode = readerPreferences.enhancementMode().get()
         // Preloading only runs when an enhancement mode is on and we're upscaling live in the reader.
-        if (mode == 0 || readerPreferences.enhanceOnDownload().get()) return null
+        if (mode == EnhancementMode.NONE || readerPreferences.enhanceOnDownload().get()) return null
         // Reading an already-upscaled downloaded chapter: pages are served baked-in, nothing is
         // preloaded live, so there's nothing to report.
         if (currentPage.alreadyUpscaled) return null
@@ -879,7 +885,10 @@ class ReaderViewModel @JvmOverloads constructor(
         val currentIndex = pages.indexOf(currentPage)
         if (currentIndex == -1) return null
 
-        val count = readerPreferences.realCuganPreloadSize().get()
+        // Window from the configured percentage, then clamped to the pages that actually exist
+        // ahead of the current one — so near a chapter's end the overlay shows e.g. 2/2 instead of
+        // 2/15. No pages ahead → nothing to preload, so hide the overlay.
+        val count = minOf(effectivePreloadWindow(pages.size), pages.lastIndex - currentIndex)
         if (count <= 0) return null
 
         ImageEnhancementCache.init(Injekt.get<Application>())
@@ -1295,12 +1304,14 @@ class ReaderViewModel @JvmOverloads constructor(
     // Remembers the last active mode (live/remote/download) so toggling back on restores it.
     fun toggleImageEnhancement(): Boolean {
         val current = readerPreferences.enhancementMode().get()
-        return if (current != 0) {
+        return if (current != EnhancementMode.NONE) {
             readerPreferences.lastEnhancementMode().set(current)
-            readerPreferences.enhancementMode().set(0)
+            readerPreferences.enhancementMode().set(EnhancementMode.NONE)
             false
         } else {
-            val restored = readerPreferences.lastEnhancementMode().get().takeIf { it != 0 } ?: 2
+            val restored = readerPreferences.lastEnhancementMode().get()
+                .takeIf { it != EnhancementMode.NONE }
+                ?: EnhancementMode.LOCAL
             readerPreferences.enhancementMode().set(restored)
             true
         }

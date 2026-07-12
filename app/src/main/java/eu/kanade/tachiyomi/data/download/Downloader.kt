@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.DiskUtil.NOMEDIA_FILE
 import eu.kanade.tachiyomi.util.storage.saveTo
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
 import exh.source.MERGED_SOURCE_ID
 import exh.source.isEhBasedSource
 import exh.util.DataSaver
@@ -105,7 +106,7 @@ class Downloader(
     private val enhanceOnDownload: Boolean
         get() {
             val mode = readerPreferences.enhancementMode().get()
-            return mode != 0 && readerPreferences.enhanceOnDownload().get()
+            return mode != EnhancementMode.NONE && readerPreferences.enhanceOnDownload().get()
         }
     // KMK <--
 

@@ -16,10 +16,13 @@ import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
+import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaleStrategy
 import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
 import eu.kanade.tachiyomi.util.waifu2x.UpscaleStats
+import eu.kanade.tachiyomi.util.waifu2x.isUsableRemoteUrl
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -227,38 +230,44 @@ class PagerPageHolder(
             val enhancementMode = prefs.enhancementMode().get()
             // When "only upscale when downloading" is on, the reader never enhances live — it serves
             // the stored file (pre-upscaled for downloaded chapters, original otherwise).
-            val liveEnhancement = enhancementMode != 0 && !prefs.enhanceOnDownload().get()
+            val liveEnhancement = enhancementMode != EnhancementMode.NONE && !prefs.enhanceOnDownload().get()
             val mangaId = page.chapter.chapter.manga_id ?: -1L
             val chapterId = page.chapter.chapter.id ?: -1L
             val pageVariant = page.enhancementKeySuffix
 
-            val isRemoteMode = enhancementMode == 3 && liveEnhancement && !page.alreadyUpscaled && extraPage == null
+            // Every display path below shares the same viewer Config; only the enhancement flags differ.
+            fun imageConfig(enhanced: Boolean, alreadyUpscaled: Boolean) = Config(
+                zoomDuration = viewer.config.doubleTapAnimDuration,
+                minimumScaleType = viewer.config.imageScaleType,
+                cropBorders = viewer.config.imageCropBorders,
+                zoomStartPosition = viewer.config.imageZoomType,
+                landscapeZoom = viewer.config.landscapeZoom,
+                disableZoomIn = viewer.config.disableZoomIn,
+                doubleTapZoom = viewer.config.doubleTapZoom,
+                landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
+                enhanced = enhanced,
+                mangaId = mangaId,
+                chapterId = chapterId,
+                pageIndex = page.index,
+                alreadyUpscaled = alreadyUpscaled,
+            )
+
+            val isRemoteMode = enhancementMode == EnhancementMode.REMOTE && liveEnhancement && !page.alreadyUpscaled && extraPage == null
 
             if (isRemoteMode) {
                 val remoteHost = prefs.remoteUpscalerHost().get()
                 val remotePort = prefs.remoteUpscalerPort().get()
-                // URL strategies (2 = url/url, 3 = batch url) ask the server to download the
-                // source image. The visible page always upscales individually (batch is handled
-                // by the prefetch queue), so strategies 2 and 3 both use the single-URL path here.
+                // URL strategies ask the server to download the source image. The visible page
+                // always upscales individually (batch is handled by the prefetch queue), so both
+                // URL strategies use the single-URL path here.
                 val remoteStrategy = prefs.remoteUpscaleStrategy().get()
-                val remoteUrl = if (remoteStrategy == 2 || remoteStrategy == 3) {
-                    page.imageUrl?.takeIf {
-                        it.startsWith("http", true) && !it.contains("127.0.0.1") && !it.contains("localhost")
-                    }
+                val remoteUrl = if (remoteStrategy == RemoteUpscaleStrategy.URL || remoteStrategy == RemoteUpscaleStrategy.BATCH_URL) {
+                    page.imageUrl?.takeIf { it.isUsableRemoteUrl() }
                 } else {
                     null
                 }
                 ImageEnhancementCache.init(context)
-                val configHash = ImageEnhancementCache.getConfigHash(
-                    noise = 0,
-                    scale = 0,
-                    inputScale = 100,
-                    model = -1,
-                    maxWidth = 0,
-                    maxHeight = 0,
-                    resizeEnabled = false,
-                    remoteHash = "$remoteHost:$remotePort",
-                )
+                val configHash = ImageEnhancementCache.getRemoteConfigHash(remoteHost, remotePort)
                 val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, page.index, configHash, pageVariant)
 
                 if (cachedFile != null) {
@@ -268,25 +277,7 @@ class PagerPageHolder(
                     // KMK <--
                     val cachedSource = Buffer().readFrom(cachedFile.inputStream())
                     withUIContext {
-                        setImage(
-                            cachedSource,
-                            false,
-                            Config(
-                                zoomDuration = viewer.config.doubleTapAnimDuration,
-                                minimumScaleType = viewer.config.imageScaleType,
-                                cropBorders = viewer.config.imageCropBorders,
-                                zoomStartPosition = viewer.config.imageZoomType,
-                                landscapeZoom = viewer.config.landscapeZoom,
-                                disableZoomIn = viewer.config.disableZoomIn,
-                                doubleTapZoom = viewer.config.doubleTapZoom,
-                                landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
-                                enhanced = false,
-                                mangaId = mangaId,
-                                chapterId = chapterId,
-                                pageIndex = page.index,
-                                alreadyUpscaled = true,
-                            ),
-                        )
+                        setImage(cachedSource, false, imageConfig(enhanced = false, alreadyUpscaled = true))
                         if (!isAnimated) pageBackground = background
                         removeErrorLayout()
                     }
@@ -294,25 +285,7 @@ class PagerPageHolder(
                     // Phase 1: Show original immediately, save bytes for background job
                     val sourceBytes = source.readByteArray()
                     withUIContext {
-                        setImage(
-                            Buffer().write(sourceBytes),
-                            isAnimated,
-                            Config(
-                                zoomDuration = viewer.config.doubleTapAnimDuration,
-                                minimumScaleType = viewer.config.imageScaleType,
-                                cropBorders = viewer.config.imageCropBorders,
-                                zoomStartPosition = viewer.config.imageZoomType,
-                                landscapeZoom = viewer.config.landscapeZoom,
-                                disableZoomIn = viewer.config.disableZoomIn,
-                                doubleTapZoom = viewer.config.doubleTapZoom,
-                                landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
-                                enhanced = false,
-                                mangaId = mangaId,
-                                chapterId = chapterId,
-                                pageIndex = page.index,
-                                alreadyUpscaled = false,
-                            ),
-                        )
+                        setImage(Buffer().write(sourceBytes), isAnimated, imageConfig(enhanced = false, alreadyUpscaled = false))
                         if (!isAnimated) pageBackground = background
                         removeErrorLayout()
                     }
@@ -332,30 +305,16 @@ class PagerPageHolder(
                                 page.index,
                                 configHash,
                                 pageVariant = pageVariant,
-                                timeoutMs = if (remoteStrategy == 1 || remoteStrategy == 3) 120_000L else 45_000L,
+                                timeoutMs = if (remoteStrategy == RemoteUpscaleStrategy.BATCH_IMAGE || remoteStrategy == RemoteUpscaleStrategy.BATCH_URL) {
+                                    120_000L
+                                } else {
+                                    45_000L
+                                },
                             )
                             if (queuedResult != null) {
                                 val cachedSource = Buffer().readFrom(queuedResult.inputStream())
                                 withUIContext {
-                                    setImage(
-                                        cachedSource,
-                                        false,
-                                        Config(
-                                            zoomDuration = viewer.config.doubleTapAnimDuration,
-                                            minimumScaleType = viewer.config.imageScaleType,
-                                            cropBorders = viewer.config.imageCropBorders,
-                                            zoomStartPosition = viewer.config.imageZoomType,
-                                            landscapeZoom = viewer.config.landscapeZoom,
-                                            disableZoomIn = viewer.config.disableZoomIn,
-                                            doubleTapZoom = viewer.config.doubleTapZoom,
-                                            landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
-                                            enhanced = false,
-                                            mangaId = mangaId,
-                                            chapterId = chapterId,
-                                            pageIndex = page.index,
-                                            alreadyUpscaled = true,
-                                        ),
-                                    )
+                                    setImage(cachedSource, false, imageConfig(enhanced = false, alreadyUpscaled = true))
                                 }
                                 return@launch
                             }
@@ -366,45 +325,35 @@ class PagerPageHolder(
                             // KMK -->
                             val enhanceStart = System.currentTimeMillis()
                             // KMK <--
-                            var enhanced: Bitmap? = if (remoteUrl != null) {
+                            val enhanced: Bitmap? = if (remoteUrl != null) {
                                 RemoteUpscaler.processUrl(remoteUrl, remoteHost, remotePort, sourceHeaders, statusCb)
                             } else {
                                 null
-                            }
-                            if (enhanced == null) {
+                            } ?: run {
                                 val input = BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.size)
                                     ?: return@launch
-                                enhanced = RemoteUpscaler.process(input, remoteHost, remotePort, statusCb)
+                                RemoteUpscaler.process(input, remoteHost, remotePort, statusCb)
                             }
                             if (enhanced != null) {
-                                ImageEnhancementCache.saveToCache(mangaId, chapterId, page.index, configHash, enhanced, pageVariant)
-                                val baos = ByteArrayOutputStream()
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                    enhanced.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, baos)
+                                // Tall upscaled pages can exceed the WebP/GL texture limits —
+                                // clamp before encoding or compress() fails silently.
+                                val result = ImageEnhancementCache.clampToDisplayLimits(enhanced)
+                                val saved = ImageEnhancementCache.saveToCache(mangaId, chapterId, page.index, configHash, result, pageVariant)
+                                // Reuse the cached WebP for display instead of compressing twice.
+                                val displaySource = if (saved != null) {
+                                    Buffer().readFrom(saved.inputStream())
                                 } else {
-                                    @Suppress("DEPRECATION")
-                                    enhanced.compress(Bitmap.CompressFormat.WEBP, 90, baos)
+                                    val baos = ByteArrayOutputStream()
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                        result.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, baos)
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        result.compress(Bitmap.CompressFormat.WEBP, 90, baos)
+                                    }
+                                    Buffer().write(baos.toByteArray())
                                 }
                                 withUIContext {
-                                    setImage(
-                                        Buffer().write(baos.toByteArray()),
-                                        false,
-                                        Config(
-                                            zoomDuration = viewer.config.doubleTapAnimDuration,
-                                            minimumScaleType = viewer.config.imageScaleType,
-                                            cropBorders = viewer.config.imageCropBorders,
-                                            zoomStartPosition = viewer.config.imageZoomType,
-                                            landscapeZoom = viewer.config.landscapeZoom,
-                                            disableZoomIn = viewer.config.disableZoomIn,
-                                            doubleTapZoom = viewer.config.doubleTapZoom,
-                                            landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
-                                            enhanced = false,
-                                            mangaId = mangaId,
-                                            chapterId = chapterId,
-                                            pageIndex = page.index,
-                                            alreadyUpscaled = true,
-                                        ),
-                                    )
+                                    setImage(displaySource, false, imageConfig(enhanced = false, alreadyUpscaled = true))
                                 }
                                 // KMK -->
                                 UpscaleStats.recordEnhanced(UpscaleStats.MODE_REMOTE, System.currentTimeMillis() - enhanceStart)
@@ -422,19 +371,8 @@ class PagerPageHolder(
                     setImage(
                         source,
                         isAnimated,
-                        Config(
-                            zoomDuration = viewer.config.doubleTapAnimDuration,
-                            minimumScaleType = viewer.config.imageScaleType,
-                            cropBorders = viewer.config.imageCropBorders,
-                            zoomStartPosition = viewer.config.imageZoomType,
-                            landscapeZoom = viewer.config.landscapeZoom,
-                            disableZoomIn = viewer.config.disableZoomIn,
-                            doubleTapZoom = viewer.config.doubleTapZoom,
-                            landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
-                            enhanced = enhancementMode == 2 && liveEnhancement,
-                            mangaId = mangaId,
-                            chapterId = chapterId,
-                            pageIndex = page.index,
+                        imageConfig(
+                            enhanced = enhancementMode == EnhancementMode.LOCAL && liveEnhancement,
                             alreadyUpscaled = page.alreadyUpscaled,
                         ),
                     )

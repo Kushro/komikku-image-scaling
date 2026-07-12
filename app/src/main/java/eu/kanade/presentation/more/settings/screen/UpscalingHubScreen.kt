@@ -15,33 +15,32 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.presentation.components.AppBar
+import eu.kanade.presentation.reader.settings.EnhanceOnDownloadSetting
+import eu.kanade.presentation.reader.settings.EnhancementModeSetting
+import eu.kanade.presentation.reader.settings.LocalUpscalerSettings
+import eu.kanade.presentation.reader.settings.RemoteUpscalerSettings
 import eu.kanade.presentation.util.Screen
 import eu.kanade.presentation.util.ioCoroutineScope
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
 import eu.kanade.tachiyomi.util.waifu2x.EnhancerState
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
@@ -78,10 +77,6 @@ class UpscalingHubScreen : Screen() {
         val lifetimeRemote by screenModel.lifetimeRemote.collectAsState()
         val lifetimeLocal by screenModel.lifetimeLocal.collectAsState()
 
-        LaunchedEffect(maxCacheMb) {
-            ImageEnhancementCache.maxCacheSizeMb = maxCacheMb
-        }
-
         if (showClearConfirm) {
             AlertDialog(
                 onDismissRequest = { screenModel.showClearConfirm.value = false },
@@ -95,7 +90,7 @@ class UpscalingHubScreen : Screen() {
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = { screenModel.clearCache(context) }) {
+                    TextButton(onClick = { screenModel.clearCache() }) {
                         Text(stringResource(MR.strings.action_ok))
                     }
                 },
@@ -120,7 +115,7 @@ class UpscalingHubScreen : Screen() {
                 contentPadding = contentPadding + PaddingValues(all = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                if (enhancementMode == 3) {
+                if (enhancementMode == EnhancementMode.REMOTE) {
                     item {
                         ServerStatusCard(
                             serverStatus = serverStatus,
@@ -414,281 +409,26 @@ class UpscalingHubScreen : Screen() {
         val enhancementMode by preferences.enhancementMode().collectAsState()
 
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            // The shared settings composables carry their own horizontal padding, so the
+            // card only pads vertically and indents its title to match.
+            Column(modifier = Modifier.padding(vertical = 16.dp)) {
                 Text(
                     text = stringResource(KMR.strings.upscaling_hub_config_section),
                     style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
 
-                Text(
-                    text = stringResource(KMR.strings.reader_enhancement_mode),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        0 to stringResource(KMR.strings.reader_enhancement_none),
-                        2 to stringResource(KMR.strings.reader_enhancement_live),
-                        3 to stringResource(KMR.strings.reader_enhancement_remote),
-                    ).forEach { (value, label) ->
-                        FilterChip(
-                            selected = enhancementMode == value,
-                            onClick = { preferences.enhancementMode().set(value) },
-                            label = { Text(label) },
-                        )
-                    }
+                EnhancementModeSetting(preferences)
+
+                when (enhancementMode) {
+                    EnhancementMode.REMOTE -> RemoteUpscalerSettings(preferences)
+                    EnhancementMode.LOCAL -> LocalUpscalerSettings(preferences)
                 }
 
-                if (enhancementMode == 3) {
-                    RemoteConfigSection(preferences = preferences)
-                } else if (enhancementMode == 2) {
-                    LocalConfigSection(preferences = preferences)
-                }
-
-                if (enhancementMode != 0) {
-                    val enhanceOnDownload by preferences.enhanceOnDownload().collectAsState()
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked = enhanceOnDownload,
-                            onCheckedChange = { preferences.enhanceOnDownload().set(it) },
-                        )
-                        Text(
-                            text = stringResource(KMR.strings.reader_enhance_on_download),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
+                if (enhancementMode != EnhancementMode.NONE) {
+                    EnhanceOnDownloadSetting(preferences)
                 }
             }
-        }
-    }
-
-    @Composable
-    private fun RemoteConfigSection(preferences: ReaderPreferences) {
-        val remoteStrategy by preferences.remoteUpscaleStrategy().collectAsState()
-
-        Text(
-            text = stringResource(KMR.strings.reader_remote_strategy),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            listOf(
-                0 to stringResource(KMR.strings.reader_remote_strategy_image),
-                1 to stringResource(KMR.strings.reader_remote_strategy_batch_image),
-                2 to stringResource(KMR.strings.reader_remote_strategy_url),
-                3 to stringResource(KMR.strings.reader_remote_strategy_batch_url),
-            ).forEach { (value, label) ->
-                FilterChip(
-                    selected = remoteStrategy == value,
-                    onClick = { preferences.remoteUpscaleStrategy().set(value) },
-                    label = { Text(label) },
-                )
-            }
-        }
-        Text(
-            text = stringResource(KMR.strings.reader_remote_strategy_summary),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = stringResource(KMR.strings.reader_remote_upscaler_model_info),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            val remoteHost by preferences.remoteUpscalerHost().collectAsState()
-            OutlinedTextField(
-                modifier = Modifier.weight(2f),
-                value = remoteHost,
-                onValueChange = { preferences.remoteUpscalerHost().set(it) },
-                label = { Text(stringResource(KMR.strings.reader_remote_upscaler_host)) },
-                placeholder = { Text("192.168.1.42") },
-                singleLine = true,
-            )
-            val remotePort by preferences.remoteUpscalerPort().collectAsState()
-            OutlinedTextField(
-                modifier = Modifier.weight(1f),
-                value = remotePort.toString(),
-                onValueChange = { s -> s.toIntOrNull()?.let { preferences.remoteUpscalerPort().set(it) } },
-                label = { Text(stringResource(KMR.strings.reader_remote_upscaler_port)) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-            )
-        }
-
-        Text(
-            text = stringResource(KMR.strings.reader_preload_pages),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        val preloadSize by preferences.realCuganPreloadSize().collectAsState()
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(1, 2, 3, 5, 8).forEach { size ->
-                FilterChip(
-                    selected = preloadSize == size,
-                    onClick = { preferences.realCuganPreloadSize().set(size) },
-                    label = { Text(stringResource(KMR.strings.reader_preload_pages_value, size)) },
-                )
-            }
-        }
-    }
-
-    @Composable
-    private fun LocalConfigSection(preferences: ReaderPreferences) {
-        val realCuganModel by preferences.realCuganModel().collectAsState()
-        val realCuganNoiseLevel by preferences.realCuganNoiseLevel().collectAsState()
-        val realCuganScale by preferences.realCuganScale().collectAsState()
-        val preloadSize by preferences.realCuganPreloadSize().collectAsState()
-        val performanceMode by preferences.realCuganPerformanceMode().collectAsState()
-
-        Text(
-            text = stringResource(KMR.strings.reader_model),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            listOf("Real-CUGAN SE", "Real-CUGAN Pro", "Real-ESRGAN", "Real-CUGAN Nose", "Waifu2x", "Waifu2x (Fast)").forEachIndexed { index, name ->
-                FilterChip(
-                    selected = realCuganModel == index,
-                    onClick = { preferences.realCuganModel().set(index) },
-                    label = { Text(name) },
-                )
-            }
-        }
-
-        if (realCuganModel == 0 || realCuganModel == 1 || realCuganModel == 4 || realCuganModel == 5) {
-            val levels = when (realCuganModel) {
-                1 -> listOf(0 to stringResource(KMR.strings.reader_none), 3 to "3x", 4 to stringResource(KMR.strings.reader_conservative))
-                4 -> listOf(0 to "1x", 1 to "2x", 2 to "3x")
-                5 -> listOf(0 to stringResource(KMR.strings.reader_none), 1 to "1x", 2 to "2x", 3 to "3x")
-                else -> listOf(0 to stringResource(KMR.strings.reader_none), 1 to "1x", 2 to "2x", 3 to "3x", 4 to stringResource(KMR.strings.reader_conservative))
-            }
-            Text(
-                text = stringResource(KMR.strings.reader_denoise_level),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                levels.forEach { (index, name) ->
-                    FilterChip(
-                        selected = realCuganNoiseLevel == index,
-                        onClick = { preferences.realCuganNoiseLevel().set(index) },
-                        label = { Text(name) },
-                    )
-                }
-            }
-        }
-
-        Text(
-            text = stringResource(KMR.strings.reader_scale_factor),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        when {
-            realCuganModel == 3 || realCuganModel == 4 || realCuganModel == 5 -> Row {
-                FilterChip(
-                    selected = true,
-                    onClick = {},
-                    label = { Text(stringResource(KMR.strings.reader_scale_fixed_2x)) },
-                )
-            }
-            realCuganModel == 1 -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(2, 3).forEach { scale ->
-                    FilterChip(
-                        selected = realCuganScale == scale,
-                        onClick = { preferences.realCuganScale().set(scale) },
-                        label = { Text("${scale}x") },
-                    )
-                }
-            }
-            else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(2, 3, 4).forEach { scale ->
-                    FilterChip(
-                        selected = realCuganScale == scale,
-                        onClick = { preferences.realCuganScale().set(scale) },
-                        label = { Text("${scale}x") },
-                    )
-                }
-            }
-        }
-
-        Text(
-            text = stringResource(KMR.strings.reader_preload_pages),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(1, 2, 3, 5, 8).forEach { size ->
-                FilterChip(
-                    selected = preloadSize == size,
-                    onClick = { preferences.realCuganPreloadSize().set(size) },
-                    label = { Text(stringResource(KMR.strings.reader_preload_pages_value, size)) },
-                )
-            }
-        }
-
-        Text(
-            text = stringResource(KMR.strings.reader_gpu_performance_mode),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                0 to stringResource(KMR.strings.reader_gpu_performance_high),
-                1 to stringResource(KMR.strings.reader_gpu_performance_balanced),
-                2 to stringResource(KMR.strings.reader_gpu_performance_power_saving),
-            ).forEach { (value, name) ->
-                FilterChip(
-                    selected = performanceMode == value,
-                    onClick = { preferences.realCuganPerformanceMode().set(value) },
-                    label = { Text(name) },
-                )
-            }
-        }
-
-        Text(
-            text = stringResource(KMR.strings.reader_target_resolution),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            val maxWidth by preferences.realCuganMaxSizeWidth().collectAsState()
-            OutlinedTextField(
-                modifier = Modifier.weight(1f),
-                value = maxWidth.toString(),
-                onValueChange = { s -> s.toIntOrNull()?.let { preferences.realCuganMaxSizeWidth().set(it) } },
-                label = { Text(stringResource(KMR.strings.reader_target_width)) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-            )
-            val maxHeight by preferences.realCuganMaxSizeHeight().collectAsState()
-            OutlinedTextField(
-                modifier = Modifier.weight(1f),
-                value = maxHeight.toString(),
-                onValueChange = { s -> s.toIntOrNull()?.let { preferences.realCuganMaxSizeHeight().set(it) } },
-                label = { Text(stringResource(KMR.strings.reader_target_height)) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-            )
         }
     }
 
@@ -719,7 +459,10 @@ class UpscalingHubScreen : Screen() {
         }
     }
 
-    class HubScreenModel(private val context: Context) : ScreenModel {
+    class HubScreenModel(context: Context) : ScreenModel {
+
+        // Never retain the Activity context a ScreenModel outlives.
+        private val appContext = context.applicationContext
 
         val preferences by lazy { Injekt.get<ReaderPreferences>() }
 
@@ -734,15 +477,19 @@ class UpscalingHubScreen : Screen() {
         val lifetimeLocal = preferences.totalPagesEnhancedLocal().stateIn(ioCoroutineScope)
 
         init {
-            ImageEnhancementCache.init(context)
+            ImageEnhancementCache.init(appContext)
             ioCoroutineScope.launch {
                 cacheSize.value = ImageEnhancementCache.cacheSizeBytes()
                 cacheFiles.value = ImageEnhancementCache.cacheFileCount()
             }
             ioCoroutineScope.launch {
                 enhancementMode.collect { mode ->
-                    if (mode == 3) probeServer()
+                    if (mode == EnhancementMode.REMOTE) probeServer()
                 }
+            }
+            // Apply cache-limit changes immediately (the trim itself runs on the next save).
+            ioCoroutineScope.launch {
+                maxCacheMb.collect { ImageEnhancementCache.maxCacheSizeMb = it }
             }
         }
 
@@ -774,10 +521,10 @@ class UpscalingHubScreen : Screen() {
             }
         }
 
-        fun clearCache(context: Context) {
+        fun clearCache() {
             ioCoroutineScope.launch {
                 showClearConfirm.value = false
-                ImageEnhancementCache.clear(context)
+                ImageEnhancementCache.clear(appContext)
                 cacheSize.value = ImageEnhancementCache.cacheSizeBytes()
                 cacheFiles.value = ImageEnhancementCache.cacheFileCount()
             }
@@ -794,7 +541,8 @@ class UpscalingHubScreen : Screen() {
             val statusMap = RemoteUpscaler.checkStatus(host, port)
             serverStatus.value = when {
                 statusMap == null -> ServerStatus.Unreachable
-                statusMap["upscaler_ready"] as? Boolean != true -> ServerStatus.NotReady(statusMap)
+                // Only an explicit false counts as not ready — older servers omit the field.
+                statusMap["upscaler_ready"] as? Boolean == false -> ServerStatus.NotReady(statusMap)
                 else -> ServerStatus.Ready(statusMap)
             }
         }

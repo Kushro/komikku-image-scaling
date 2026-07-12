@@ -16,6 +16,7 @@ import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.image.ImageFilter
 import eu.kanade.tachiyomi.util.system.GLUtil
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
 import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
 import eu.kanade.tachiyomi.util.waifu2x.UpscaleStats
@@ -39,7 +40,7 @@ import kotlin.math.roundToInt
 
 /**
  * A [Decoder] that uses built-in [ImageDecoder] to decode images that is not supported by the system.
- * // KMK --) Also handles on-the-fly image enhancement via Waifu2x/RealCUGAN models.
+ * // KMK --> Also handles on-the-fly image enhancement via Waifu2x/RealCUGAN models.
  */
 class TachiyomiImageDecoder(private val resources: ImageSource, private val options: Options) : Decoder {
     private val context = Injekt.get<Application>()
@@ -144,20 +145,11 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                         ImageEnhancementCache.init(context)
 
                         val enhancementMode = preferences.enhancementMode().get()
-                        val isRemoteUpscaler = enhancementMode == 3
+                        val isRemoteUpscaler = enhancementMode == EnhancementMode.REMOTE
                         val configHash = if (isRemoteUpscaler) {
                             val remoteHost = preferences.remoteUpscalerHost().get()
                             val remotePort = preferences.remoteUpscalerPort().get()
-                            ImageEnhancementCache.getConfigHash(
-                                noise = 0,
-                                scale = 0,
-                                inputScale = 100,
-                                model = -1,
-                                maxWidth = 0,
-                                maxHeight = 0,
-                                resizeEnabled = false,
-                                remoteHash = "$remoteHost:$remotePort",
-                            )
+                            ImageEnhancementCache.getRemoteConfigHash(remoteHost, remotePort)
                         } else {
                             ImageEnhancementCache.getConfigHash(
                                 noise = preferences.realCuganNoiseLevel().get(),
@@ -204,12 +196,13 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                     if (result != null) {
                                         var enhanced = result
 
-                                        // Output resolution limit (same as local path)
-                                        val textureLimit = GLUtil.DEVICE_TEXTURE_LIMIT
+                                        // Output resolution limit: the cached WebP caps each side
+                                        // at MAX_WEBP_DIMENSION, on top of the GL texture limit.
+                                        val textureLimit = minOf(GLUtil.DEVICE_TEXTURE_LIMIT, ImageEnhancementCache.MAX_WEBP_DIMENSION)
                                         if (enhanced.width > textureLimit || enhanced.height > textureLimit) {
                                             val widthRatio = textureLimit.toFloat() / enhanced.width
                                             val heightRatio = textureLimit.toFloat() / enhanced.height
-                                            val downscaleRatio = Math.min(widthRatio, heightRatio)
+                                            val downscaleRatio = min(widthRatio, heightRatio)
                                             val newWidth = (enhanced.width * downscaleRatio).toInt().coerceAtLeast(1)
                                             val newHeight = (enhanced.height * downscaleRatio).toInt().coerceAtLeast(1)
                                             val downscaled = nativeScaleBitmap(enhanced, newWidth, newHeight)
@@ -231,7 +224,7 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                     logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Remote upscaler failed" }
                                 }
                             }
-                        } else if (enhancementMode == 2) {
+                        } else if (enhancementMode == EnhancementMode.LOCAL) {
                             // KMK --> Serve a previously-enhanced page (e.g. populated by the prefetch
                             // queue) from disk instead of re-running the model on every decode.
                             val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, pageIndex, configHash, pageVariant)
@@ -340,12 +333,13 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                             if (processed != null) {
                                                 var result = ImageFilter.applyInkFilterIfEnabled(processed, Injekt.get())
 
-                                                // Output resolution limit (prevent Canvas errors)
-                                                val textureLimit = GLUtil.DEVICE_TEXTURE_LIMIT
+                                                // Output resolution limit (prevent Canvas errors and
+                                                // silent WebP encode failures above MAX_WEBP_DIMENSION)
+                                                val textureLimit = minOf(GLUtil.DEVICE_TEXTURE_LIMIT, ImageEnhancementCache.MAX_WEBP_DIMENSION)
                                                 if (result.width > textureLimit || result.height > textureLimit) {
                                                     val widthRatio = textureLimit.toFloat() / result.width
                                                     val heightRatio = textureLimit.toFloat() / result.height
-                                                    val downscaleRatio = Math.min(widthRatio, heightRatio)
+                                                    val downscaleRatio = min(widthRatio, heightRatio)
 
                                                     val newWidth = (result.width * downscaleRatio).toInt().coerceAtLeast(1)
                                                     val newHeight = (result.height * downscaleRatio).toInt().coerceAtLeast(1)
