@@ -1325,7 +1325,10 @@ class MangaScreenModel(
      */
     fun getNextUnreadChapter(): Chapter? {
         val successState = successState ?: return null
-        return successState.chapters.getNextUnread(successState.manga)
+        // KMK --> Resume from the deduplicated list the user actually sees, so scanlator-priority
+        // mode doesn't jump into a hidden duplicate of an already-read chapter.
+        return successState.processedChapters.getNextUnread(successState.manga)
+        // KMK <--
     }
 
     private fun getUnreadChapters(): List<Chapter> {
@@ -1430,6 +1433,17 @@ class MangaScreenModel(
 
     fun markPreviousChapterRead(pointer: Chapter) {
         val manga = successState?.manga ?: return
+        // KMK --> In scanlator-priority mode, "previous" spans every scanlator: mark all earlier
+        // chapter numbers read (including the hidden duplicates) so the unread count matches the
+        // deduplicated view instead of being inflated by other scanlators' copies.
+        if (manga.scanlatorPriorityMode && pointer.isRecognizedNumber) {
+            val previous = allChapters.orEmpty()
+                .map { it.chapter }
+                .filter { it.isRecognizedNumber && it.chapterNumber < pointer.chapterNumber }
+            markChaptersRead(previous, true)
+            return
+        }
+        // KMK <--
         val chapters = filteredChapters.orEmpty().map { it.chapter }
         val prevChapters = if (manga.sortDescending()) chapters.asReversed() else chapters
         val pointerPos = prevChapters.indexOf(pointer)

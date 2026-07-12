@@ -96,6 +96,7 @@ import tachiyomi.domain.chapter.interactor.GetBookmarkedChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.GetMergedChaptersByMangaId
 import tachiyomi.domain.chapter.model.Chapter
+import tachiyomi.domain.chapter.service.deduplicateByScanlatorPriority
 import tachiyomi.domain.history.interactor.GetNextChapters
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.domain.library.model.LibraryGroup
@@ -107,6 +108,7 @@ import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.manga.interactor.GetIdsOfFavoriteMangaWithMetadata
 import tachiyomi.domain.manga.interactor.GetLibraryManga
 import tachiyomi.domain.manga.interactor.GetMergedMangaById
+import tachiyomi.domain.manga.interactor.GetScanlatorPriorities
 import tachiyomi.domain.manga.interactor.GetSearchTags
 import tachiyomi.domain.manga.interactor.GetSearchTitles
 import tachiyomi.domain.manga.interactor.SetCustomMangaInfo
@@ -160,6 +162,7 @@ class LibraryScreenModel(
     // SY <--
     // KMK -->
     private val smartSearchMerge: SmartSearchMerge = Injekt.get(),
+    private val getScanlatorPriorities: GetScanlatorPriorities = Injekt.get(),
     // KMK <--
 ) : StateScreenModel<LibraryScreenModel.State>(State()) {
 
@@ -899,7 +902,18 @@ class LibraryScreenModel(
             getMergedChaptersByMangaId.await(manga.id, applyFilter = true)
         } else {
             getChaptersByMangaId.await(manga.id, applyFilter = true)
-        }.getNextUnread(manga, downloadManager, mergedManga)
+        }
+            // KMK --> Resume from the deduplicated list the user actually sees, so scanlator-priority
+            // mode doesn't jump into a hidden duplicate of an already-read chapter.
+            .let {
+                if (manga.scanlatorPriorityMode) {
+                    it.deduplicateByScanlatorPriority(getScanlatorPriorities.await(manga.id))
+                } else {
+                    it
+                }
+            }
+            // KMK <--
+            .getNextUnread(manga, downloadManager, mergedManga)
         // SY <--
     }
 
