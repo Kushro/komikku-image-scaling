@@ -55,10 +55,15 @@ object ImageEnhancementCache {
     fun removeCachedImage(mangaId: Long, chapterId: Long, pageIndex: Int, configHash: String, pageVariant: String = ""): Boolean {
         return try {
             val file = File(getChapterDir(mangaId, chapterId), getFilename(pageIndex, configHash, pageVariant))
-            val tempFile = File(file.parent, "${file.name}.tmp")
             val removedFile = !file.exists() || file.delete()
-            val removedTemp = !tempFile.exists() || tempFile.delete()
-            removedFile && removedTemp
+            // In-progress saves use unique "<name>.<writer>.tmp" suffixes — sweep them all.
+            var removedTemps = true
+            file.parentFile?.listFiles()?.forEach { sibling ->
+                if (sibling.name.startsWith("${file.name}.") && sibling.name.endsWith(".tmp")) {
+                    removedTemps = sibling.delete() && removedTemps
+                }
+            }
+            removedFile && removedTemps
         } catch (e: Exception) {
             android.util.Log.e("ImageEnhancementCache", "Failed to remove cached image for page $pageIndex", e)
             false
@@ -76,30 +81,44 @@ object ImageEnhancementCache {
     }
 
     /**
-     * Save bitmap to disk cache
+     * Save bitmap to disk cache.
+     *
+     * The temp file name MUST be unique per write: the same page can be saved
+     * concurrently by two writers (the page holder's individual remote-enhance job
+     * and the prefetch queue's batch worker). With a shared fixed ".tmp" name both
+     * writers interleave bytes into one file — and after the first rename the
+     * second writer's fd keeps writing into the *renamed* final file (same inode),
+     * corrupting the cached WebP into a mosaic of misplaced macroblocks.
      */
     fun saveToCache(mangaId: Long, chapterId: Long, pageIndex: Int, configHash: String, bitmap: Bitmap, pageVariant: String = ""): File? {
         val currentCacheDir = cacheDir ?: return null
 
         try {
             val file = File(getChapterDir(mangaId, chapterId), getFilename(pageIndex, configHash, pageVariant))
-            val tempFile = File(file.parent, "${file.name}.tmp")
+            val tempFile = File(
+                file.parent,
+                "${file.name}.${Thread.currentThread().id}-${System.nanoTime()}.tmp",
+            )
 
-            FileOutputStream(tempFile).use { out ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, out)
-                } else {
-                    @Suppress("DEPRECATION")
-                    bitmap.compress(Bitmap.CompressFormat.WEBP, 90, out)
+            try {
+                FileOutputStream(tempFile).use { out ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, out)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        bitmap.compress(Bitmap.CompressFormat.WEBP, 90, out)
+                    }
+                    out.flush()
                 }
-                out.flush()
-            }
 
-            if (tempFile.renameTo(file)) {
-                return file
-            } else {
-                tempFile.delete()
+                // rename(2) is atomic and replaces any existing target, so a
+                // concurrent duplicate save just wins wholesale — never mixes.
+                if (tempFile.renameTo(file)) {
+                    return file
+                }
                 return null
+            } finally {
+                if (tempFile.exists()) tempFile.delete()
             }
         } catch (t: Throwable) {
             android.util.Log.e("ImageEnhancementCache", "Failed to save to cache for page $pageIndex", t)

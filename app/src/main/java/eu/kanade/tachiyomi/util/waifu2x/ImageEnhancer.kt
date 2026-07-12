@@ -25,6 +25,7 @@ import okio.Buffer
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.PriorityBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
@@ -276,6 +277,67 @@ object ImageEnhancer {
         return (pageIndex == targetPageIndex && pageVariant == targetPageVariant) ||
             (pageIndex == targetSecondaryPageIndex && pageVariant == targetSecondaryPageVariant)
     }
+
+    // KMK --> Holder/queue deduplication
+    /**
+     * Wait for the prefetch queue to produce the cached result of a page it owns, so page
+     * holders don't fire a duplicate server request for work the batch worker is already
+     * doing (each bound holder used to upscale its page individually *in addition to* the
+     * queue's batch — doubling server GPU load for every preloaded page).
+     *
+     * Returns the cached file once the queue's worker writes it, or null when the caller
+     * should upscale the page itself:
+     * - the page is (or becomes) the focused target — visible pages keep the fast
+     *   individual path instead of waiting out a whole batch round-trip;
+     * - the queue never claimed the page within [graceMs] (e.g. non-library manga, or the
+     *   request was pruned);
+     * - the queue finished/dropped the request without producing a cache entry;
+     * - [timeoutMs] elapsed.
+     */
+    suspend fun awaitQueuedResult(
+        mangaId: Long,
+        chapterId: Long,
+        pageIndex: Int,
+        configHash: String,
+        pageVariant: String = "",
+        graceMs: Long = 1_500,
+        timeoutMs: Long = 45_000,
+    ): File? {
+        // The queue never accepts pages without DB ids (see enhance()).
+        if (mangaId == -1L || chapterId == -1L) return null
+
+        fun cached(): File? =
+            ImageEnhancementCache.getCachedImage(mangaId, chapterId, pageIndex, configHash, pageVariant)
+
+        if (isFocusedTarget(pageIndex, pageVariant)) return cached()
+
+        // Grace phase: a holder can bind before the ViewModel's prefetch enqueues the
+        // page — give the queue a moment to claim it before concluding nobody will.
+        val graceDeadline = System.currentTimeMillis() + graceMs
+        while (!hasRequest(mangaId, chapterId, pageIndex, pageVariant)) {
+            cached()?.let { return it }
+            if (isFocusedTarget(pageIndex, pageVariant)) return null
+            if (System.currentTimeMillis() >= graceDeadline) return null
+            kotlinx.coroutines.delay(250)
+        }
+
+        // Wait phase: the queue owns the page — poll for its cache write.
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            cached()?.let { return it }
+            // The user scrolled onto this page mid-batch: bail out so the caller gives it
+            // the fast individual treatment instead of keeping the original on screen.
+            if (isFocusedTarget(pageIndex, pageVariant)) return null
+            if (!hasRequest(mangaId, chapterId, pageIndex, pageVariant)) {
+                // Finished or pruned. The cache write happens before the pending flag is
+                // cleared, so one last look settles whether it succeeded.
+                return cached()
+            }
+            kotlinx.coroutines.delay(500)
+        }
+        return null
+    }
+    // KMK <--
 
     fun isActivelyProcessing(mangaId: Long, chapterId: Long, pageIndex: Int, pageVariant: String = ""): Boolean {
         return activeMangaId == mangaId &&
