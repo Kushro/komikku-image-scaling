@@ -1061,7 +1061,11 @@ class ReaderViewModel @JvmOverloads constructor(
 
         val markDuplicateAsRead = libraryPreferences.markDuplicateReadChapterAsRead().get()
             .contains(LibraryPreferences.MARK_DUPLICATE_CHAPTER_READ_EXISTING)
-        if (!markDuplicateAsRead) return
+        // KMK --> In scanlator-priority mode the hidden same-number duplicates from other scanlators
+        // must follow their winner's read state — otherwise the unread count stays inflated and the
+        // Continue button can resume into a duplicate of a chapter that's already been read.
+        if (!markDuplicateAsRead && manga?.scanlatorPriorityMode != true) return
+        // KMK <--
 
         val duplicateUnreadChapters = unfilteredChapterList
             .mapNotNull { chapter ->
