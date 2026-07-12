@@ -1,5 +1,6 @@
 package eu.kanade.presentation.reader.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -19,6 +20,8 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
@@ -32,6 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -43,6 +49,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.reader.settings.UpscalingSuccessColor
 import eu.kanade.presentation.theme.TachiyomiPreviewTheme
 import eu.kanade.presentation.util.isTabletUi
 import tachiyomi.i18n.MR
@@ -63,6 +70,10 @@ fun ChapterNavigator(
     // SY <--
     totalPages: Int,
     onPageIndexChange: (Int) -> Unit,
+    // KMK --> Page-slider notch markers; null hides the corresponding notch
+    downloadNotchFraction: Float? = null,
+    upscaleNotchFraction: Float? = null,
+    // KMK <--
 ) {
     // SY -->
     if (isVerticalSlider) {
@@ -75,6 +86,10 @@ fun ChapterNavigator(
             currentPageText = currentPageText,
             totalPages = totalPages,
             onPageIndexChange = onPageIndexChange,
+            // KMK -->
+            downloadNotchFraction = downloadNotchFraction,
+            upscaleNotchFraction = upscaleNotchFraction,
+            // KMK <--
         )
         return
     }
@@ -159,6 +174,11 @@ fun ChapterNavigator(
                                 onPageIndexChange(it - 1)
                             },
                             interactionSource = interactionSource,
+                            // KMK -->
+                            track = { sliderState ->
+                                NotchedSliderTrack(sliderState, downloadNotchFraction, upscaleNotchFraction)
+                            },
+                            // KMK <--
                         )
 
                         Text(
@@ -201,6 +221,10 @@ fun ChapterNavigatorVert(
     // SY <--
     totalPages: Int,
     onPageIndexChange: (Int) -> Unit,
+    // KMK --> Page-slider notch markers; null hides the corresponding notch
+    downloadNotchFraction: Float? = null,
+    upscaleNotchFraction: Float? = null,
+    // KMK <--
 ) {
     val isTabletUi = isTabletUi()
     val verticalPadding = if (isTabletUi) 24.dp else 8.dp
@@ -291,6 +315,11 @@ fun ChapterNavigatorVert(
                         onPageIndexChange(it - 1)
                     },
                     interactionSource = interactionSource,
+                    // KMK -->
+                    track = { sliderState ->
+                        NotchedSliderTrack(sliderState, downloadNotchFraction, upscaleNotchFraction)
+                    },
+                    // KMK <--
                 )
 
                 Text(
@@ -317,6 +346,45 @@ fun ChapterNavigatorVert(
         }
     }
 }
+
+// KMK -->
+/**
+ * Default slider track with up to two notch markers painted over it: the page-download
+ * frontier (tertiary) and the upscaling frontier (success green). Fractions are 0..1 over
+ * the whole chapter. Rotation (vertical seekbar) and RTL both come for free — the canvas
+ * lives inside the track slot, which the slider transforms as a whole.
+ */
+@Composable
+private fun NotchedSliderTrack(
+    sliderState: SliderState,
+    downloadNotchFraction: Float?,
+    upscaleNotchFraction: Float?,
+) {
+    val downloadColor = MaterialTheme.colorScheme.tertiary
+    val upscaleColor = UpscalingSuccessColor
+    Box {
+        SliderDefaults.Track(sliderState = sliderState)
+        if (downloadNotchFraction != null || upscaleNotchFraction != null) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val notchWidth = 3.dp.toPx()
+                fun notch(fraction: Float, color: Color) {
+                    val f = fraction.coerceIn(0f, 1f)
+                    val along = if (layoutDirection == LayoutDirection.Rtl) 1f - f else f
+                    val x = (size.width * along).coerceIn(notchWidth / 2f, size.width - notchWidth / 2f)
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(x - notchWidth / 2f, 0f),
+                        size = Size(notchWidth, size.height),
+                        cornerRadius = CornerRadius(notchWidth / 2f),
+                    )
+                }
+                downloadNotchFraction?.let { notch(it, downloadColor) }
+                upscaleNotchFraction?.let { notch(it, upscaleColor) }
+            }
+        }
+    }
+}
+// KMK <--
 
 @Preview
 @Composable

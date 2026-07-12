@@ -68,6 +68,10 @@ fun ReaderAppBars(
     currentPage: Int,
     totalPages: Int,
     onPageIndexChange: (Int) -> Unit,
+    // KMK --> Page-slider notch markers; null hides the corresponding notch
+    downloadNotchFraction: Float? = null,
+    upscaleNotchFraction: Float? = null,
+    // KMK <--
 
     readingMode: ReadingMode,
     onClickReadingMode: () -> Unit,
@@ -187,6 +191,10 @@ fun ReaderAppBars(
                         isVerticalSlider = true,
                         currentPageText = currentPageText,
                         // SY <--
+                        // KMK -->
+                        downloadNotchFraction = downloadNotchFraction,
+                        upscaleNotchFraction = upscaleNotchFraction,
+                        // KMK <--
                     )
                 }
             }
@@ -221,6 +229,10 @@ fun ReaderAppBars(
                         isVerticalSlider = true,
                         currentPageText = currentPageText,
                         // SY <--
+                        // KMK -->
+                        downloadNotchFraction = downloadNotchFraction,
+                        upscaleNotchFraction = upscaleNotchFraction,
+                        // KMK <--
                     )
                 }
             }
@@ -252,6 +264,10 @@ fun ReaderAppBars(
                         isVerticalSlider = false,
                         currentPageText = currentPageText,
                         // SY <--
+                        // KMK -->
+                        downloadNotchFraction = downloadNotchFraction,
+                        upscaleNotchFraction = upscaleNotchFraction,
+                        // KMK <--
                     )
                 }
                 ReaderBottomBar(

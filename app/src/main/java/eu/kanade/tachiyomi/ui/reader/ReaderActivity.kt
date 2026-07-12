@@ -82,6 +82,7 @@ import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.presentation.reader.ReaderPageActionsDialog
 import eu.kanade.presentation.reader.ReaderPageIndicator
 import eu.kanade.presentation.reader.ReadingModeSelectDialog
+import eu.kanade.presentation.reader.UpscalingStatusOverlay
 import eu.kanade.presentation.reader.appbars.NavBarType
 import eu.kanade.presentation.reader.appbars.ReaderAppBars
 import eu.kanade.presentation.reader.settings.ReaderSettingsDialog
@@ -120,6 +121,7 @@ import eu.kanade.tachiyomi.util.system.toShareIntent
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.view.setComposeContent
 import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementOverlayType
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import exh.source.isEhBasedSource
 import exh.util.defaultReaderType
@@ -366,121 +368,41 @@ class ReaderActivity : BaseActivity() {
                     )
                 }
 
-                // KMK --> Enhancement overlay: detail level, position, opacity and tap-to-settings.
-                val overlayDetailRaw by readerPreferences.enhancementOverlayDetail().collectAsState()
+                // KMK --> Enhancement overlay: variant (A-D), position, size, opacity, % margin
+                // and tap-to-settings. Rendering lives in UpscalingStatusOverlay.
+                val overlayType by readerPreferences.enhancementOverlayType().collectAsState()
                 val overlayPosition by readerPreferences.enhancementOverlayPosition().collectAsState()
                 val overlayOpacityPct by readerPreferences.enhancementOverlayOpacity().collectAsState()
                 val overlaySize by readerPreferences.enhancementOverlaySize().collectAsState()
-                val overlayMarginDp by readerPreferences.enhancementOverlayMarginDp().collectAsState()
-                val overlayStyle by readerPreferences.enhancementOverlayStyle().collectAsState()
+                val overlayMarginPct by readerPreferences.enhancementOverlayMarginPct().collectAsState()
                 val preloadStatus = state.preloadStatus
                 val enhancerState by ImageEnhancer.enhancerState.collectAsState()
 
-                val effectiveDetail = overlayDetailRaw.coerceAtLeast(0)
-                if (effectiveDetail > 0 && preloadStatus != null) {
+                if (overlayType > EnhancementOverlayType.OFF && preloadStatus != null) {
                     val overlayAlignment = when (overlayPosition) {
                         1 -> Alignment.BottomEnd
                         2 -> Alignment.TopStart
                         3 -> Alignment.TopEnd
                         else -> Alignment.BottomStart
                     }
-                    val hasError = enhancerState.lastError != null
-                    val progressValue = if (preloadStatus.max > 0) {
-                        preloadStatus.loaded.toFloat() / preloadStatus.max
-                    } else {
-                        0f
-                    }
-                    val overlayTextStyle = if (overlaySize >= 2) {
-                        MaterialTheme.typography.labelMedium
-                    } else {
-                        MaterialTheme.typography.labelSmall
-                    }
-                    val barHeightDp = when (overlaySize) {
-                        0 -> 2.dp
-                        2 -> 4.dp
-                        else -> 3.dp
-                    }
-                    val innerHPad = when (overlaySize) {
-                        0 -> 6.dp
-                        2 -> 10.dp
-                        else -> 8.dp
-                    }
-                    val innerVPad = when (overlaySize) {
-                        0 -> 3.dp
-                        2 -> 6.dp
-                        else -> 4.dp
-                    }
-                    val surfaceColor = when (overlayStyle) {
-                        1, 2 -> ComposeColor.Transparent
-                        else -> MaterialTheme.colorScheme.surface.copy(alpha = overlayOpacityPct / 100f)
-                    }
-                    val overlaySurfaceBorder: BorderStroke? = if (overlayStyle == 1) {
-                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = overlayOpacityPct / 100f))
-                    } else {
-                        null
-                    }
-                    Column(
+                    // Percent-based margin: relative to each screen dimension so it scales
+                    // sensibly across phones/tablets and orientations.
+                    val configuration = LocalConfiguration.current
+                    val marginH = (configuration.screenWidthDp * overlayMarginPct / 100f).dp
+                    val marginV = (configuration.screenHeightDp * overlayMarginPct / 100f).dp
+                    UpscalingStatusOverlay(
+                        type = overlayType,
+                        sizeLevel = overlaySize,
+                        opacityPct = overlayOpacityPct,
+                        status = preloadStatus,
+                        hasError = enhancerState.lastError != null,
+                        processingStatus = state.processingStatus,
                         modifier = Modifier
                             .align(overlayAlignment)
                             .navigationBarsPadding()
-                            .padding(overlayMarginDp.dp)
+                            .padding(horizontal = marginH, vertical = marginV)
                             .clickable { viewModel.openSettingsDialog() },
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Surface(
-                            color = surfaceColor,
-                            shape = RoundedCornerShape(4.dp),
-                            border = overlaySurfaceBorder,
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = innerHPad, vertical = innerVPad),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                LinearProgressIndicator(
-                                    progress = { progressValue },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(barHeightDp),
-                                    color = when {
-                                        hasError -> MaterialTheme.colorScheme.error
-                                        preloadStatus.loading > 0 -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.tertiary
-                                    },
-                                )
-                                if (effectiveDetail >= 2) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        if (hasError) {
-                                            Text(
-                                                text = "⚠",
-                                                style = overlayTextStyle,
-                                                color = MaterialTheme.colorScheme.error,
-                                            )
-                                        }
-                                        Text(
-                                            text = stringResource(
-                                                KMR.strings.reader_preload_status,
-                                                preloadStatus.loaded,
-                                                preloadStatus.loading,
-                                                preloadStatus.max,
-                                            ),
-                                            style = overlayTextStyle,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                        )
-                                    }
-                                }
-                                if (effectiveDetail >= 3 && state.processingStatus != null) {
-                                    Text(
-                                        text = state.processingStatus!!,
-                                        style = overlayTextStyle,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    )
                 }
                 // KMK <--
 
@@ -848,6 +770,10 @@ class ReaderActivity : BaseActivity() {
                 isScrollingThroughPages = true
                 moveToPageIndex(it)
             },
+            // KMK --> Page-slider notch markers (download / upscaling frontiers)
+            downloadNotchFraction = state.downloadNotchFraction,
+            upscaleNotchFraction = state.upscaleNotchFraction,
+            // KMK <--
 
             readingMode = ReadingMode.fromPreference(
                 viewModel.getMangaReadingMode(resolveDefault = false),

@@ -1,12 +1,8 @@
 package eu.kanade.presentation.reader.settings
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -17,15 +13,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -33,19 +26,16 @@ import eu.kanade.tachiyomi.ui.reader.setting.ConnectionStatus
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
-import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
-import eu.kanade.tachiyomi.util.waifu2x.PageUpscaleRecord
-import eu.kanade.tachiyomi.util.waifu2x.PageUpscaleStatus
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementOverlayType
 import tachiyomi.i18n.kmk.KMR
+import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.HeadingItem
+import tachiyomi.presentation.core.components.SelectItem
 import tachiyomi.presentation.core.components.SettingsChipRow
 import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.SliderItem
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun UpscalingPage(screenModel: ReaderSettingsScreenModel) {
@@ -72,10 +62,16 @@ internal fun UpscalingPage(screenModel: ReaderSettingsScreenModel) {
 
     if (enhancementMode != EnhancementMode.NONE) {
         EnhanceOnDownloadSetting(preferences)
+
+        // Page-slider notch showing how far ahead pages are upscaled (the download
+        // counterpart lives in the General tab).
+        CheckboxItem(
+            label = stringResource(KMR.strings.pref_show_upscale_notch),
+            pref = preferences.showUpscaleNotch(),
+        )
+
         OverlaySettings(preferences)
     }
-
-    ChapterUpscaleProgress()
 }
 
 @Composable
@@ -135,21 +131,24 @@ private fun ConnectionCheckRow(screenModel: ReaderSettingsScreenModel) {
 private fun OverlaySettings(preferences: ReaderPreferences) {
     HeadingItem(stringResource(KMR.strings.upscaling_overlay_settings))
 
-    val overlayDetail by preferences.enhancementOverlayDetail().collectAsState()
-    SettingsChipRow(KMR.strings.upscaling_overlay_detail) {
-        listOf(
-            0 to stringResource(KMR.strings.upscaling_overlay_detail_off),
-            1 to stringResource(KMR.strings.upscaling_overlay_detail_minimal),
-            2 to stringResource(KMR.strings.upscaling_overlay_detail_compact),
-            3 to stringResource(KMR.strings.upscaling_overlay_detail_detailed),
-        ).forEach { (value, label) ->
-            FilterChip(
-                selected = overlayDetail.coerceAtLeast(0) == value,
-                onClick = { preferences.enhancementOverlayDetail().set(value) },
-                label = { Text(label) },
-            )
-        }
-    }
+    // Overlay variant picker — each type is a different design with its own information
+    // density, so a dropdown reads better than two separate detail/style chip rows.
+    val overlayType by preferences.enhancementOverlayType().collectAsState()
+    val typeOptions = listOf(
+        EnhancementOverlayType.OFF to stringResource(KMR.strings.upscaling_overlay_type_off),
+        EnhancementOverlayType.BAR to stringResource(KMR.strings.upscaling_overlay_type_bar),
+        EnhancementOverlayType.COUNTER to stringResource(KMR.strings.upscaling_overlay_type_counter),
+        EnhancementOverlayType.DETAILED to stringResource(KMR.strings.upscaling_overlay_type_detailed),
+        EnhancementOverlayType.RING to stringResource(KMR.strings.upscaling_overlay_type_ring),
+    )
+    SelectItem(
+        label = stringResource(KMR.strings.upscaling_overlay_type),
+        options = typeOptions.map { it.second }.toTypedArray(),
+        selectedIndex = typeOptions.indexOfFirst { it.first == overlayType }.coerceAtLeast(0),
+        onSelect = { index -> preferences.enhancementOverlayType().set(typeOptions[index].first) },
+    )
+
+    if (overlayType <= EnhancementOverlayType.OFF) return
 
     val overlayPosition by preferences.enhancementOverlayPosition().collectAsState()
     SettingsChipRow(KMR.strings.upscaling_overlay_position) {
@@ -162,21 +161,6 @@ private fun OverlaySettings(preferences: ReaderPreferences) {
             FilterChip(
                 selected = overlayPosition == value,
                 onClick = { preferences.enhancementOverlayPosition().set(value) },
-                label = { Text(label) },
-            )
-        }
-    }
-
-    val overlayStyle by preferences.enhancementOverlayStyle().collectAsState()
-    SettingsChipRow(KMR.strings.upscaling_overlay_style) {
-        listOf(
-            0 to stringResource(KMR.strings.upscaling_overlay_style_filled),
-            1 to stringResource(KMR.strings.upscaling_overlay_style_outlined),
-            2 to stringResource(KMR.strings.upscaling_overlay_style_minimal),
-        ).forEach { (value, label) ->
-            FilterChip(
-                selected = overlayStyle == value,
-                onClick = { preferences.enhancementOverlayStyle().set(value) },
                 label = { Text(label) },
             )
         }
@@ -202,141 +186,18 @@ private fun OverlaySettings(preferences: ReaderPreferences) {
         value = overlayOpacity,
         valueRange = 10..100,
         label = stringResource(KMR.strings.upscaling_overlay_opacity),
+        valueString = "$overlayOpacity%",
         onChange = { preferences.enhancementOverlayOpacity().set(it) },
     )
 
-    val overlayMargin by preferences.enhancementOverlayMarginDp().collectAsState()
-    SettingsChipRow(KMR.strings.upscaling_overlay_margin) {
-        listOf(4, 8, 12, 16, 20, 24).forEach { margin ->
-            FilterChip(
-                selected = overlayMargin == margin,
-                onClick = { preferences.enhancementOverlayMarginDp().set(margin) },
-                label = { Text("${margin}dp") },
-            )
-        }
-    }
-}
-
-@Composable
-private fun ChapterUpscaleProgress() {
-    val pageRecords by ImageEnhancer.pageRecords.collectAsState()
-    if (pageRecords.isEmpty()) return
-
-    HeadingItem(stringResource(KMR.strings.upscaling_chapter_progress))
-    val expandedPages = remember { mutableStateMapOf<String, Boolean>() }
-    val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss") }
-    pageRecords.forEach { record ->
-        val key = "${record.pageIndex}_${record.pageVariant}"
-        PageRecordRow(
-            record = record,
-            isExpanded = expandedPages[key] ?: false,
-            onToggleExpanded = { expandedPages[key] = !(expandedPages[key] ?: false) },
-            timeFormatter = timeFormatter,
-        )
-    }
-}
-
-@Composable
-private fun PageRecordRow(
-    record: PageUpscaleRecord,
-    isExpanded: Boolean,
-    onToggleExpanded: () -> Unit,
-    timeFormatter: DateTimeFormatter,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggleExpanded),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = SettingsItemsPaddings.Horizontal, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = if (record.pageVariant.isNotEmpty()) {
-                    stringResource(KMR.strings.upscaling_page_number_variant, record.pageIndex + 1, record.pageVariant)
-                } else {
-                    stringResource(KMR.strings.upscaling_page_number, record.pageIndex + 1)
-                },
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f),
-            )
-            val (statusColor, statusLabel) = when (record.status) {
-                PageUpscaleStatus.QUEUED ->
-                    MaterialTheme.colorScheme.outline to stringResource(KMR.strings.upscaling_status_queued)
-                PageUpscaleStatus.PROCESSING ->
-                    MaterialTheme.colorScheme.primary to stringResource(KMR.strings.upscaling_status_processing)
-                PageUpscaleStatus.DONE ->
-                    UpscalingSuccessColor to stringResource(KMR.strings.upscaling_status_done)
-                PageUpscaleStatus.FAILED ->
-                    MaterialTheme.colorScheme.error to stringResource(KMR.strings.upscaling_status_failed)
-            }
-            Text(
-                text = statusLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = statusColor,
-            )
-            if (record.durationMs > 0) {
-                Text(
-                    text = "${record.durationMs}ms",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (record.status == PageUpscaleStatus.PROCESSING) {
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = SettingsItemsPaddings.Horizontal)
-                    .height(2.dp),
-            )
-        }
-        AnimatedVisibility(visible = isExpanded) {
-            Column(
-                modifier = Modifier.padding(
-                    start = SettingsItemsPaddings.Horizontal + 16.dp,
-                    end = SettingsItemsPaddings.Horizontal,
-                    top = 2.dp,
-                    bottom = 6.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                if (record.model.isNotEmpty()) {
-                    Text(
-                        text = stringResource(KMR.strings.upscaling_detail_model, record.model),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (record.batchId > 0) {
-                    Text(
-                        text = stringResource(KMR.strings.upscaling_detail_batch, record.batchId, record.batchSize),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (record.enqueuedMs > 0) {
-                    val time = timeFormatter.format(
-                        Instant.ofEpochMilli(record.enqueuedMs).atZone(ZoneId.systemDefault()).toLocalTime(),
-                    )
-                    Text(
-                        text = stringResource(KMR.strings.upscaling_detail_enqueued, time),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (record.error != null) {
-                    Text(
-                        text = stringResource(KMR.strings.upscaling_detail_error, record.error),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        }
-    }
+    // Margin as a percentage of the screen so it scales across devices; capped at 15%
+    // to keep the overlay on-screen and useful.
+    val overlayMarginPct by preferences.enhancementOverlayMarginPct().collectAsState()
+    SliderItem(
+        value = overlayMarginPct,
+        valueRange = 0..15,
+        label = stringResource(KMR.strings.upscaling_overlay_margin),
+        valueString = "$overlayMarginPct%",
+        onChange = { preferences.enhancementOverlayMarginPct().set(it) },
+    )
 }

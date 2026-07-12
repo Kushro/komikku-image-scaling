@@ -52,7 +52,10 @@ internal class HttpPageLoader(
      */
     private val queue = PriorityBlockingQueue<PriorityPage>()
 
-    private val preloadSize = /* SY --> */ readerPreferences.preloadSize().get() // SY <--
+    // KMK --> Read live (not captured at construction) so the quick-access chips in the reader's
+    // Upscaling tab take effect immediately instead of on the next chapter.
+    private val preloadSize get() = /* SY --> */ readerPreferences.preloadSize().get() // SY <--
+    // KMK <--
 
     // SY -->
     private val dataSaver = DataSaver(source, sourcePreferences)

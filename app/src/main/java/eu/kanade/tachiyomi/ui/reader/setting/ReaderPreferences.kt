@@ -222,10 +222,8 @@ class ReaderPreferences(
     fun realCuganScale() = preferenceStore.getInt("pref_realcugan_scale", 2)
     fun realCuganInputScale() = preferenceStore.getInt("pref_realcugan_input_scale", 100)
     fun realCuganModel() = preferenceStore.getInt("pref_realcugan_model", 0)
-    // Preload window as a percentage of the chapter's total page count (25/50/100). Normalizes the
-    // runway between long-page manga (few, very tall pages) and webtoons (many short pages) instead
-    // of a fixed page count. Effective window = ceil(totalPages * percent / 100), min 1 when > 0.
-    fun realCuganPreloadPercent() = preferenceStore.getInt("pref_realcugan_preload_percent", 50)
+    // NOTE: upscaling look-ahead has no setting of its own — it follows the page-download
+    // frontier, so preloadSize() (the page preload amount) is what paces it.
     fun realCuganPerformanceMode() = preferenceStore.getInt("pref_realcugan_performance_mode", 0)
     fun realCuganMaxSizeWidth() = preferenceStore.getInt("pref_realcugan_max_size_width", 1600)
     fun realCuganMaxSizeHeight() = preferenceStore.getInt("pref_realcugan_max_size_height", 1600)
@@ -244,19 +242,23 @@ class ReaderPreferences(
     fun remoteUpscaleStrategy() = preferenceStore.getInt("pref_remote_upscale_strategy", 0)
     fun totalPagesEnhancedRemote() = preferenceStore.getLong("pref_total_pages_enhanced_remote", 0L)
     fun totalPagesEnhancedLocal() = preferenceStore.getLong("pref_total_pages_enhanced_local", 0L)
-    // Overlay detail level: -1=unset/pending migration, 0=OFF, 1=MINIMAL (bar only),
-    // 2=COMPACT (bar+count, default after migration), 3=DETAILED (bar+count+processing status)
+    // LEGACY overlay detail level, kept only so it can be migrated to enhancementOverlayType():
+    // -1=unset, 0=OFF, 1=MINIMAL, 2=COMPACT, 3=DETAILED
     fun enhancementOverlayDetail() = preferenceStore.getInt("pref_enhancement_overlay_detail", -1)
+    // Overlay variant (see EnhancementOverlayType): -1=pending migration, 0=off,
+    // 1=bar, 2=compact counter, 3=detailed panel, 4=percentage ring
+    fun enhancementOverlayType() = preferenceStore.getInt("pref_enhancement_overlay_type", -1)
     // Overlay position: 0=BottomStart, 1=BottomEnd, 2=TopStart, 3=TopEnd
     fun enhancementOverlayPosition() = preferenceStore.getInt("pref_enhancement_overlay_position", 0)
     // Overlay background opacity: 10-100%
     fun enhancementOverlayOpacity() = preferenceStore.getInt("pref_enhancement_overlay_opacity", 85)
     // Overlay size: 0=Small, 1=Medium, 2=Large
     fun enhancementOverlaySize() = preferenceStore.getInt("pref_enhancement_overlay_size", 1)
-    // Overlay margin from screen edge in dp
-    fun enhancementOverlayMarginDp() = preferenceStore.getInt("pref_enhancement_overlay_margin", 8)
-    // Overlay style: 0=Filled, 1=Outlined, 2=Minimal
-    fun enhancementOverlayStyle() = preferenceStore.getInt("pref_enhancement_overlay_style", 0)
+    // Overlay margin from the screen edge as a percentage of the screen dimensions (0-15)
+    fun enhancementOverlayMarginPct() = preferenceStore.getInt("pref_enhancement_overlay_margin_pct", 2)
+    // Page-slider markers: download frontier (general) and upscaling frontier (enhancement only)
+    fun showDownloadNotch() = preferenceStore.getBoolean("pref_reader_download_notch", true)
+    fun showUpscaleNotch() = preferenceStore.getBoolean("pref_upscaling_slider_notch", true)
     // KMK -->
     // "Only upscale when downloading": bake upscaling into downloaded files (once) and read the
     // stored result, instead of upscaling live in the reader. Off by default = downloads stay original.
