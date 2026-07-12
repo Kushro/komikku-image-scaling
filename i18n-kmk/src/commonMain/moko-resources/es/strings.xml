@@ -272,4 +272,5 @@
     <string name="upscaling_hub_stats_lifetime_remote">Remoto: %1$s páginas</string>
     <string name="upscaling_hub_stats_lifetime_local">Local: %1$s páginas</string>
     <string name="upscaling_hub_config_section">Configuración</string>
+    <string name="upscaling_tab">Upscaling</string>
 </resources>
