@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.system.dpToPx
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
+import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -299,6 +300,34 @@ class WebtoonPageHolder(
                             val statusCb: suspend (String) -> Unit = { msg ->
                                 viewer.activity.viewModel.updateProcessingStatus(msg)
                             }
+                            // KMK --> Defer to the prefetch queue when it already owns this page,
+                            // instead of firing a duplicate server request for every bound holder.
+                            // Focused (visible) pages skip this and keep the fast individual path.
+                            val queuedResult = ImageEnhancer.awaitQueuedResult(
+                                mangaId, chapterId, pageIndex, configHash,
+                                timeoutMs = if (remoteStrategy == 1 || remoteStrategy == 3) 120_000L else 45_000L,
+                            )
+                            if (queuedResult != null) {
+                                val cachedSource = Buffer().readFrom(queuedResult.inputStream())
+                                withUIContext {
+                                    frame.setImage(
+                                        cachedSource,
+                                        false,
+                                        ReaderPageImageView.Config(
+                                            zoomDuration = viewer.config.doubleTapAnimDuration,
+                                            minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                                            cropBorders = cropBorders,
+                                            enhanced = false,
+                                            mangaId = mangaId,
+                                            chapterId = chapterId,
+                                            pageIndex = pageIndex,
+                                            alreadyUpscaled = true,
+                                        ),
+                                    )
+                                }
+                                return@launch
+                            }
+                            // KMK <--
                             // Try the server-side download first for URL strategies; fall back to
                             // sending the decoded bitmap when no usable URL or the server can't fetch it.
                             var enhanced: Bitmap? = if (remoteUrl != null) {

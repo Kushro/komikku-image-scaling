@@ -318,6 +318,39 @@ class PagerPageHolder(
                             val statusCb: suspend (String) -> Unit = { msg ->
                                 viewer.activity.viewModel.updateProcessingStatus(msg)
                             }
+                            // KMK --> Defer to the prefetch queue when it already owns this page,
+                            // instead of firing a duplicate server request for every bound holder.
+                            // Focused (visible) pages skip this and keep the fast individual path.
+                            val queuedResult = ImageEnhancer.awaitQueuedResult(
+                                mangaId, chapterId, page.index, configHash,
+                                timeoutMs = if (remoteStrategy == 1 || remoteStrategy == 3) 120_000L else 45_000L,
+                            )
+                            if (queuedResult != null) {
+                                val cachedSource = Buffer().readFrom(queuedResult.inputStream())
+                                withUIContext {
+                                    setImage(
+                                        cachedSource,
+                                        false,
+                                        Config(
+                                            zoomDuration = viewer.config.doubleTapAnimDuration,
+                                            minimumScaleType = viewer.config.imageScaleType,
+                                            cropBorders = viewer.config.imageCropBorders,
+                                            zoomStartPosition = viewer.config.imageZoomType,
+                                            landscapeZoom = viewer.config.landscapeZoom,
+                                            disableZoomIn = viewer.config.disableZoomIn,
+                                            doubleTapZoom = viewer.config.doubleTapZoom,
+                                            landscapeZoomScaleType = viewer.config.landscapeZoomScaleType,
+                                            enhanced = false,
+                                            mangaId = mangaId,
+                                            chapterId = chapterId,
+                                            pageIndex = page.index,
+                                            alreadyUpscaled = true,
+                                        ),
+                                    )
+                                }
+                                return@launch
+                            }
+                            // KMK <--
                             // Try the server-side download first for URL strategies; fall back to
                             // sending the decoded bitmap when no usable URL or the server can't fetch it.
                             var enhanced: Bitmap? = if (remoteUrl != null) {
