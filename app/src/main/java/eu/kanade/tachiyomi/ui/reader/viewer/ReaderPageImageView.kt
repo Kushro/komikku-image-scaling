@@ -351,8 +351,12 @@ open class ReaderPageImageView @JvmOverloads constructor(
                 isVisible = true
             }
             is BufferedSource -> {
-                // KMK --> When enhancement is enabled, route through Coil so TachiyomiImageDecoder can process
-                if (!config.enhanced && (!isWebtoon || alwaysDecodeLongStripWithSSIV)) {
+                // KMK --> When enhancement is enabled, route through Coil so TachiyomiImageDecoder can process.
+                // Already-upscaled images (server/remote mode, served from cache as lossy WebP) must ALSO
+                // go through Coil's full decode: handing them to SSIV's inputStream path makes it region-
+                // decode the WebP with BitmapRegionDecoder, which mis-tiles large lossy WebP into a scrambled
+                // mosaic (source images are usually JPEG, so this only surfaces for the WebP-encoded cache).
+                if (!config.enhanced && !config.alreadyUpscaled && (!isWebtoon || alwaysDecodeLongStripWithSSIV)) {
                     // KMK <--
                     setHardwareConfig(ImageUtil.canUseHardwareBitmap(data))
                     setImage(ImageSource.inputStream(data.inputStream()))
