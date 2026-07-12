@@ -322,7 +322,10 @@ class PagerPageHolder(
                             // instead of firing a duplicate server request for every bound holder.
                             // Focused (visible) pages skip this and keep the fast individual path.
                             val queuedResult = ImageEnhancer.awaitQueuedResult(
-                                mangaId, chapterId, page.index, configHash,
+                                mangaId,
+                                chapterId,
+                                page.index,
+                                configHash,
                                 timeoutMs = if (remoteStrategy == 1 || remoteStrategy == 3) 120_000L else 45_000L,
                             )
                             if (queuedResult != null) {

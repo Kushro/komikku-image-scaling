@@ -304,7 +304,10 @@ class WebtoonPageHolder(
                             // instead of firing a duplicate server request for every bound holder.
                             // Focused (visible) pages skip this and keep the fast individual path.
                             val queuedResult = ImageEnhancer.awaitQueuedResult(
-                                mangaId, chapterId, pageIndex, configHash,
+                                mangaId,
+                                chapterId,
+                                pageIndex,
+                                configHash,
                                 timeoutMs = if (remoteStrategy == 1 || remoteStrategy == 3) 120_000L else 45_000L,
                             )
                             if (queuedResult != null) {
