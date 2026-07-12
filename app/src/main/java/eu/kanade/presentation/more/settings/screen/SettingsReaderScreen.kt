@@ -5,6 +5,8 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderBottomButton
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
@@ -38,11 +40,18 @@ object SettingsReaderScreen : SearchableSettings {
     @Composable
     override fun getPreferences(): List<Preference> {
         val readerPref = remember { Injekt.get<ReaderPreferences>() }
+        val navigator = LocalNavigator.currentOrThrow
         // SY -->
         val forceHorizontalSeekbar by readerPref.forceHorizontalSeekbar().collectAsState()
         // SY <--
 
         return listOf(
+            // KMK -->
+            Preference.PreferenceItem.TextPreference(
+                title = stringResource(KMR.strings.upscaling_hub_open),
+                onClick = { navigator.push(UpscalingHubScreen()) },
+            ),
+            // KMK <--
             Preference.PreferenceItem.ListPreference(
                 preference = readerPref.defaultReadingMode(),
                 entries = ReadingMode.entries.drop(1)

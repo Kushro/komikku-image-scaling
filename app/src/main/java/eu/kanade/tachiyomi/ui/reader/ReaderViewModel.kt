@@ -164,6 +164,13 @@ class ReaderViewModel @JvmOverloads constructor(
     val currentChapter: Chapter?
         get() = state.value.currentChapter?.chapter?.toDomainChapter()
 
+    // KMK -->
+    fun getSourceHeaders(): Map<String, String> {
+        val source = manga?.let { sourceManager.get(it.source) } as? HttpSource ?: return emptyMap()
+        return buildMap { for (i in 0 until source.headers.size) put(source.headers.name(i), source.headers.value(i)) }
+    }
+    // KMK <--
+
     /**
      * The chapter id of the currently loaded chapter. Used to restore from process kill.
      */
@@ -406,11 +413,27 @@ class ReaderViewModel @JvmOverloads constructor(
             .launchIn(viewModelScope)
         // SY <--
 
-        // KMK --> Keep the "Show preloading status" overlay counters fresh while enabled, even when
+        // KMK -->
+        ImageEnhancementCache.maxCacheSizeMb = readerPreferences.enhancementCacheMaxSizeMb().get()
+        // Migrate old per-boolean overlay prefs to the new detail-level pref on first run.
+        if (readerPreferences.enhancementOverlayDetail().get() == -1) {
+            val showPreload = readerPreferences.realCuganShowPreloadStatus().get()
+            val showProcessing = readerPreferences.realCuganShowStatus().get()
+            readerPreferences.enhancementOverlayDetail().set(
+                when {
+                    showPreload && showProcessing -> 3
+                    showPreload -> 2
+                    else -> 0
+                },
+            )
+        }
+        // KMK <--
+
+        // KMK --> Keep the overlay counters fresh while the overlay is visible, even when
         // the user isn't turning pages (background upscales finishing shift loaded/loading counts).
         viewModelScope.launchIO {
             while (true) {
-                val status = if (readerPreferences.realCuganShowPreloadStatus().get()) {
+                val status = if (readerPreferences.enhancementOverlayDetail().get().coerceAtLeast(0) > 0) {
                     val page = lastSelectedPage
                     val pages = lastSelectedPages
                     if (page != null && pages != null) computePreloadStatus(page, pages) else null
