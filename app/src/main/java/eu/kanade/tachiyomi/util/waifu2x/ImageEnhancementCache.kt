@@ -11,9 +11,17 @@ import java.io.FileOutputStream
  */
 object ImageEnhancementCache {
     private const val CACHE_DIR_NAME = "realcugan_cache"
-    private const val MAX_CACHE_SIZE = 3L * 1024 * 1024 * 1024 // 3GB
+    private const val DEFAULT_MAX_CACHE_SIZE_MB = 3 * 1024 // 3 GB in MB
     private var cacheDir: File? = null
     private var lastTrimTime = 0L
+
+    var maxCacheSizeMb: Int = DEFAULT_MAX_CACHE_SIZE_MB
+
+    private val maxCacheBytes: Long get() = maxCacheSizeMb.toLong() * 1024 * 1024
+
+    fun cacheSizeBytes(): Long = cacheDir?.walkTopDown()?.filter { it.isFile }?.map { it.length() }?.sum() ?: 0L
+
+    fun cacheFileCount(): Int = cacheDir?.walkTopDown()?.filter { it.isFile && !it.name.endsWith(".tmp") && !it.name.endsWith(".skip") }?.count() ?: 0
 
     fun init(context: Context) {
         if (cacheDir == null) {
@@ -123,6 +131,31 @@ object ImageEnhancementCache {
         } catch (t: Throwable) {
             android.util.Log.e("ImageEnhancementCache", "Failed to save to cache for page $pageIndex", t)
             return null
+        }
+    }
+
+    /**
+     * Write raw image bytes directly to the cache, using the same atomic temp-rename pattern.
+     * Used by the batch worker to avoid re-encoding server output (PNG → WebP transcoding).
+     * The file keeps the ".webp" extension for naming consistency — decoders sniff the actual type.
+     */
+    fun saveBytesToCache(mangaId: Long, chapterId: Long, pageIndex: Int, configHash: String, bytes: ByteArray, pageVariant: String = ""): File? {
+        val currentCacheDir = cacheDir ?: return null
+        return try {
+            val file = File(getChapterDir(mangaId, chapterId), getFilename(pageIndex, configHash, pageVariant))
+            val tempFile = File(
+                file.parent,
+                "${file.name}.${Thread.currentThread().id}-${System.nanoTime()}.tmp",
+            )
+            try {
+                tempFile.writeBytes(bytes)
+                if (tempFile.renameTo(file)) file else null
+            } finally {
+                if (tempFile.exists()) tempFile.delete()
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("ImageEnhancementCache", "Failed to save raw bytes to cache for page $pageIndex", t)
+            null
         }
     }
 
@@ -240,9 +273,10 @@ object ImageEnhancementCache {
         val dir = cacheDir ?: return
 
         try {
+            val limit = maxCacheBytes
             var size = dir.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
-            if (size > MAX_CACHE_SIZE) {
-                android.util.Log.d("ImageEnhancementCache", "Cache size ${size / 1024 / 1024}MB > 3GB, trimming...")
+            if (size > limit) {
+                android.util.Log.d("ImageEnhancementCache", "Cache size ${size / 1024 / 1024}MB > ${maxCacheSizeMb}MB, trimming...")
 
                 // Get all files sorted by last modified (oldest first)
                 val files = dir.walkTopDown()
@@ -250,7 +284,7 @@ object ImageEnhancementCache {
                     .sortedBy { it.lastModified() }
                     .iterator()
 
-                while (files.hasNext() && size > MAX_CACHE_SIZE * 0.9) { // Trim to 90%
+                while (files.hasNext() && size > (limit * 0.9).toLong()) { // Trim to 90%
                     val file = files.next()
                     val len = file.length()
                     if (file.delete()) {

@@ -26,16 +26,20 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -114,6 +118,7 @@ import eu.kanade.tachiyomi.util.system.openInBrowser
 import eu.kanade.tachiyomi.util.system.toShareIntent
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.view.setComposeContent
+import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import exh.source.isEhBasedSource
 import exh.util.defaultReaderType
 import exh.util.mangaType
@@ -359,46 +364,86 @@ class ReaderActivity : BaseActivity() {
                     )
                 }
 
-                // KMK --> Enhancement overlays (bottom-left corner): preloading status on top,
-                // processing status below it so the two never overlap.
-                val showProcessingStatus by readerPreferences.realCuganShowStatus().collectAsState()
+                // KMK --> Enhancement overlay: detail level, position, opacity and tap-to-settings.
+                val overlayDetailRaw by readerPreferences.enhancementOverlayDetail().collectAsState()
+                val overlayPosition by readerPreferences.enhancementOverlayPosition().collectAsState()
+                val overlayOpacityPct by readerPreferences.enhancementOverlayOpacity().collectAsState()
                 val preloadStatus = state.preloadStatus
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .navigationBarsPadding()
-                        .padding(start = 8.dp, bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    if (preloadStatus != null) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                            shape = RoundedCornerShape(4.dp),
-                        ) {
-                            Text(
-                                text = stringResource(
-                                    KMR.strings.reader_preload_status,
-                                    preloadStatus.loaded,
-                                    preloadStatus.loading,
-                                    preloadStatus.max,
-                                ),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
+                val enhancerState by ImageEnhancer.enhancerState.collectAsState()
+
+                val effectiveDetail = overlayDetailRaw.coerceAtLeast(0)
+                if (effectiveDetail > 0 && preloadStatus != null) {
+                    val overlayAlignment = when (overlayPosition) {
+                        1 -> Alignment.BottomEnd
+                        2 -> Alignment.TopStart
+                        3 -> Alignment.TopEnd
+                        else -> Alignment.BottomStart
                     }
-                    if (showProcessingStatus && state.processingStatus != null) {
+                    val hasError = enhancerState.lastError != null
+                    val progressValue = if (preloadStatus.max > 0) {
+                        preloadStatus.loaded.toFloat() / preloadStatus.max
+                    } else {
+                        0f
+                    }
+                    Column(
+                        modifier = Modifier
+                            .align(overlayAlignment)
+                            .navigationBarsPadding()
+                            .padding(8.dp)
+                            .clickable { viewModel.openSettingsDialog() },
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = overlayOpacityPct / 100f),
                             shape = RoundedCornerShape(4.dp),
                         ) {
-                            Text(
-                                text = state.processingStatus!!,
+                            Column(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                LinearProgressIndicator(
+                                    progress = { progressValue },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(2.dp),
+                                    color = when {
+                                        hasError -> MaterialTheme.colorScheme.error
+                                        preloadStatus.loading > 0 -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.tertiary
+                                    },
+                                )
+                                if (effectiveDetail >= 2) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        if (hasError) {
+                                            Text(
+                                                text = "⚠",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.error,
+                                            )
+                                        }
+                                        Text(
+                                            text = stringResource(
+                                                KMR.strings.reader_preload_status,
+                                                preloadStatus.loaded,
+                                                preloadStatus.loading,
+                                                preloadStatus.max,
+                                            ),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                }
+                                if (effectiveDetail >= 3 && state.processingStatus != null) {
+                                    Text(
+                                        text = state.processingStatus!!,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
                     }
                 }

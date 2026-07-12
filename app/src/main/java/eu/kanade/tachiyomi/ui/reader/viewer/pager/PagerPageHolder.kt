@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
+import eu.kanade.tachiyomi.util.waifu2x.UpscaleStats
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -229,6 +230,7 @@ class PagerPageHolder(
             val liveEnhancement = enhancementMode != 0 && !prefs.enhanceOnDownload().get()
             val mangaId = page.chapter.chapter.manga_id ?: -1L
             val chapterId = page.chapter.chapter.id ?: -1L
+            val pageVariant = page.enhancementKeySuffix
 
             val isRemoteMode = enhancementMode == 3 && liveEnhancement && !page.alreadyUpscaled && extraPage == null
 
@@ -257,10 +259,13 @@ class PagerPageHolder(
                     resizeEnabled = false,
                     remoteHash = "$remoteHost:$remotePort",
                 )
-                val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, page.index, configHash)
+                val cachedFile = ImageEnhancementCache.getCachedImage(mangaId, chapterId, page.index, configHash, pageVariant)
 
                 if (cachedFile != null) {
                     // Fast path: serve from cache immediately (no original flash)
+                    // KMK -->
+                    UpscaleStats.recordCacheHit()
+                    // KMK <--
                     val cachedSource = Buffer().readFrom(cachedFile.inputStream())
                     withUIContext {
                         setImage(
@@ -326,6 +331,7 @@ class PagerPageHolder(
                                 chapterId,
                                 page.index,
                                 configHash,
+                                pageVariant = pageVariant,
                                 timeoutMs = if (remoteStrategy == 1 || remoteStrategy == 3) 120_000L else 45_000L,
                             )
                             if (queuedResult != null) {
@@ -356,8 +362,12 @@ class PagerPageHolder(
                             // KMK <--
                             // Try the server-side download first for URL strategies; fall back to
                             // sending the decoded bitmap when no usable URL or the server can't fetch it.
+                            val sourceHeaders = viewer.activity.viewModel.getSourceHeaders()
+                            // KMK -->
+                            val enhanceStart = System.currentTimeMillis()
+                            // KMK <--
                             var enhanced: Bitmap? = if (remoteUrl != null) {
-                                RemoteUpscaler.processUrl(remoteUrl, remoteHost, remotePort, statusCb)
+                                RemoteUpscaler.processUrl(remoteUrl, remoteHost, remotePort, sourceHeaders, statusCb)
                             } else {
                                 null
                             }
@@ -367,7 +377,7 @@ class PagerPageHolder(
                                 enhanced = RemoteUpscaler.process(input, remoteHost, remotePort, statusCb)
                             }
                             if (enhanced != null) {
-                                ImageEnhancementCache.saveToCache(mangaId, chapterId, page.index, configHash, enhanced)
+                                ImageEnhancementCache.saveToCache(mangaId, chapterId, page.index, configHash, enhanced, pageVariant)
                                 val baos = ByteArrayOutputStream()
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                     enhanced.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, baos)
@@ -396,6 +406,9 @@ class PagerPageHolder(
                                         ),
                                     )
                                 }
+                                // KMK -->
+                                UpscaleStats.recordEnhanced(UpscaleStats.MODE_REMOTE, System.currentTimeMillis() - enhanceStart)
+                                // KMK <--
                             }
                         } catch (e: Exception) {
                             logcat(LogPriority.ERROR, e) { "PagerPageHolder: Remote enhancement failed for page ${page.index}" }

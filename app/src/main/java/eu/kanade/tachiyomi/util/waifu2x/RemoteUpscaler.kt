@@ -31,7 +31,7 @@ object RemoteUpscaler {
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(300, TimeUnit.SECONDS)
         .build()
 
     // Batches are processed sequentially server-side, so a whole batch can take much
@@ -130,13 +130,16 @@ object RemoteUpscaler {
         imageUrl: String,
         host: String,
         port: Int,
+        sourceHeaders: Map<String, String> = emptyMap(),
         onStatus: suspend (String) -> Unit = {},
     ): Bitmap? = withContext(Dispatchers.IO) {
         if (host.isBlank() || imageUrl.isBlank()) return@withContext null
 
         try {
             onStatus("Requesting server-side download…")
-            val payload = JSONObject().put("url", imageUrl).toString()
+            val payload = JSONObject().put("url", imageUrl).also { obj ->
+                if (sourceHeaders.isNotEmpty()) obj.put("headers", JSONObject(sourceHeaders))
+            }.toString()
             val request = Request.Builder()
                 .url("http://$host:$port/upscale/url")
                 .post(payload.toRequestBody(jsonMediaType))
@@ -185,7 +188,7 @@ object RemoteUpscaler {
         host: String,
         port: Int,
         onStatus: suspend (String) -> Unit = {},
-    ): List<Bitmap?> = withContext(Dispatchers.IO) {
+    ): List<ByteArray?> = withContext(Dispatchers.IO) {
         if (host.isBlank() || images.isEmpty()) return@withContext emptyList()
 
         try {
@@ -204,7 +207,7 @@ object RemoteUpscaler {
                 onStatus("Server error: HTTP ${response.code}")
                 return@withContext List(images.size) { null }
             }
-            onStatus("Decoding batch result…")
+            onStatus("Received batch result…")
             parseBatchResponse(response.body!!.string(), images.size)
         } catch (e: Exception) {
             Log.e(TAG, "Remote /upscale/batch failed: ${e.message}", e)
@@ -223,15 +226,18 @@ object RemoteUpscaler {
         urls: List<String>,
         host: String,
         port: Int,
+        sourceHeaders: Map<String, String> = emptyMap(),
         onStatus: suspend (String) -> Unit = {},
-    ): List<Bitmap?> = withContext(Dispatchers.IO) {
+    ): List<ByteArray?> = withContext(Dispatchers.IO) {
         if (host.isBlank() || urls.isEmpty()) return@withContext emptyList()
 
         try {
             onStatus("Requesting server-side download of ${urls.size} image(s)…")
             val arr = JSONArray()
             urls.forEach { arr.put(it) }
-            val payload = JSONObject().put("urls", arr).toString()
+            val payload = JSONObject().put("urls", arr).also { obj ->
+                if (sourceHeaders.isNotEmpty()) obj.put("headers", JSONObject(sourceHeaders))
+            }.toString()
             val request = Request.Builder()
                 .url("http://$host:$port/upscale/batch/url")
                 .post(payload.toRequestBody(jsonMediaType))
@@ -243,7 +249,7 @@ object RemoteUpscaler {
                 onStatus("Server error: HTTP ${response.code}")
                 return@withContext List(urls.size) { null }
             }
-            onStatus("Decoding batch result…")
+            onStatus("Received batch result…")
             parseBatchResponse(response.body!!.string(), urls.size)
         } catch (e: Exception) {
             Log.e(TAG, "Remote /upscale/batch/url failed: ${e.message}", e)
@@ -253,11 +259,12 @@ object RemoteUpscaler {
     }
 
     /**
-     * Parse a batch response body into bitmaps aligned to the request order.
+     * Parse a batch response body into raw byte arrays aligned to the request order.
+     * Bytes are the server's output PNG — written directly to cache without re-encoding.
      * Shape: {"batch_id":N,"results":[{"index":i,"success":bool,"image":"b64"|null,"error":"…"}]}.
      */
-    private fun parseBatchResponse(body: String, expectedSize: Int): List<Bitmap?> {
-        val out = arrayOfNulls<Bitmap>(expectedSize)
+    private fun parseBatchResponse(body: String, expectedSize: Int): List<ByteArray?> {
+        val out = arrayOfNulls<ByteArray>(expectedSize)
         try {
             val results = JSONObject(body).getJSONArray("results")
             for (i in 0 until results.length()) {
@@ -267,8 +274,7 @@ object RemoteUpscaler {
                 if (item.optBoolean("success", false)) {
                     val b64 = item.optString("image", "")
                     if (b64.isNotEmpty()) {
-                        val bytes = Base64.decode(b64, Base64.DEFAULT)
-                        out[index] = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        out[index] = Base64.decode(b64, Base64.DEFAULT)
                     }
                 } else {
                     Log.w(TAG, "Batch item $index failed: ${item.optString("error")}")
@@ -293,7 +299,11 @@ object RemoteUpscaler {
                 .get()
                 .build()
             val response = client.newCall(request).execute()
-            if (response.isSuccessful) return@withContext true
+            if (response.isSuccessful) {
+                val body = response.body?.string() ?: return@withContext false
+                // Server reports upscaler_ready:false when binaries/model aren't ready yet.
+                return@withContext body.contains("\"upscaler_ready\":true")
+            }
             // Fall back to /status if /health is not found (older server)
             if (response.code == 404) {
                 val statusRequest = Request.Builder()
@@ -343,12 +353,14 @@ object RemoteUpscaler {
         val result = mutableMapOf<String, Any?>()
         // Strip outer braces and split by commas, handling quoted strings
         val content = json.trim().removeSurrounding("{", "}")
-        val regex = """"(\w+)":\s*("(?:[^"\\]|\\.)*"|null|\d+)""".toRegex()
+        val regex = """"(\w+)":\s*("(?:[^"\\]|\\.)*"|null|true|false|[\d.]+)""".toRegex()
         regex.findAll(content).forEach { match ->
             val key = match.groupValues[1]
             val rawValue = match.groupValues[2]
             result[key] = when {
                 rawValue == "null" -> null
+                rawValue == "true" -> true
+                rawValue == "false" -> false
                 rawValue.startsWith("\"") -> rawValue.removeSurrounding("\"")
                 rawValue.contains(".") -> rawValue.toDouble()
                 else -> rawValue.toIntOrNull() ?: rawValue.toLongOrNull()

@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.util.image.ImageFilter
 import eu.kanade.tachiyomi.util.system.GLUtil
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
 import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
+import eu.kanade.tachiyomi.util.waifu2x.UpscaleStats
 import eu.kanade.tachiyomi.util.waifu2x.Waifu2x
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -184,6 +185,9 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                         bitmap.recycle()
                                         bitmap = cachedBitmap
                                         usedRemoteCache = true
+                                        // KMK -->
+                                        UpscaleStats.recordCacheHit()
+                                        // KMK <--
                                     }
                                 } catch (e: Exception) {
                                     logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Failed to decode cached remote-enhanced image" }
@@ -192,6 +196,10 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
 
                             if (!usedRemoteCache) {
                                 try {
+                                    // KMK -->
+                                    val enhanceStart = System.currentTimeMillis()
+                                    val bytesInRemote = bitmap.byteCount.toLong()
+                                    // KMK <--
                                     val result = RemoteUpscaler.process(bitmap, remoteHost, remotePort)
                                     if (result != null) {
                                         var enhanced = result
@@ -214,6 +222,9 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                         ImageEnhancementCache.saveToCache(mangaId, chapterId, pageIndex, configHash, enhanced, pageVariant)
                                         if (bitmap != enhanced) bitmap.recycle()
                                         bitmap = enhanced
+                                        // KMK -->
+                                        UpscaleStats.recordEnhanced(UpscaleStats.MODE_REMOTE, System.currentTimeMillis() - enhanceStart, bytesInRemote, bitmap.byteCount.toLong())
+                                        // KMK <--
                                     }
                                     // If remote returns null, keep original bitmap unenhanced
                                 } catch (e: Exception) {
@@ -231,6 +242,9 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                     if (cachedBitmap != null) {
                                         bitmap.recycle()
                                         bitmap = cachedBitmap
+                                        // KMK -->
+                                        UpscaleStats.recordCacheHit()
+                                        // KMK <--
                                     }
                                 } catch (e: Exception) {
                                     logcat(LogPriority.ERROR, e) { "TachiyomiImageDecoder: Failed to decode cached enhanced image" }
@@ -300,6 +314,10 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                     }
 
                                     if (!shouldSkipEnhancement) {
+                                        // KMK -->
+                                        val enhanceStart = System.currentTimeMillis()
+                                        val bytesInLocal = bitmap.byteCount.toLong()
+                                        // KMK <--
                                         val initialized = when (model) {
                                             0 -> Waifu2x.initRealCugan(context, noise, effectiveScale, isPro = false, tileSleepMs = tileSleepMs, tileSize = tileSize)
                                             1 -> Waifu2x.initRealCugan(context, noise, effectiveScale, isPro = true, tileSleepMs = tileSleepMs, tileSize = tileSize)
@@ -341,6 +359,9 @@ class TachiyomiImageDecoder(private val resources: ImageSource, private val opti
                                                 ImageEnhancementCache.saveToCache(mangaId, chapterId, pageIndex, configHash, result, pageVariant)
                                                 if (bitmap != result) bitmap.recycle()
                                                 bitmap = result
+                                                // KMK -->
+                                                UpscaleStats.recordEnhanced(UpscaleStats.MODE_LOCAL, System.currentTimeMillis() - enhanceStart, bytesInLocal, bitmap.byteCount.toLong())
+                                                // KMK <--
                                             }
                                         }
                                     }

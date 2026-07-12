@@ -230,6 +230,7 @@ class ReaderPreferences(
     fun realCuganResizeLargeImage() = preferenceStore.getBoolean("pref_realcugan_resize_large_image", true)
     fun realCuganShowStatus() = preferenceStore.getBoolean("pref_realcugan_show_status", false)
     fun realCuganShowPreloadStatus() = preferenceStore.getBoolean("pref_realcugan_show_preload_status", false)
+    fun enhancementCacheMaxSizeMb() = preferenceStore.getInt("pref_enhancement_cache_max_size_mb", 3 * 1024) // 3 GB default
     // Remote upscaler (routes images to a Python TUI server instead of local NCNN)
     fun remoteUpscalerHost() = preferenceStore.getString("pref_remote_upscaler_host", "")
     fun remoteUpscalerPort() = preferenceStore.getInt("pref_remote_upscaler_port", 8282)
@@ -239,6 +240,15 @@ class ReaderPreferences(
     // Batch strategies are driven by the prefetch queue over the preload window; the
     // visible page always uses the single-image/url path for instant feedback.
     fun remoteUpscaleStrategy() = preferenceStore.getInt("pref_remote_upscale_strategy", 0)
+    fun totalPagesEnhancedRemote() = preferenceStore.getLong("pref_total_pages_enhanced_remote", 0L)
+    fun totalPagesEnhancedLocal() = preferenceStore.getLong("pref_total_pages_enhanced_local", 0L)
+    // Overlay detail level: -1=unset/pending migration, 0=OFF, 1=MINIMAL (bar only),
+    // 2=COMPACT (bar+count, default after migration), 3=DETAILED (bar+count+processing status)
+    fun enhancementOverlayDetail() = preferenceStore.getInt("pref_enhancement_overlay_detail", -1)
+    // Overlay position: 0=BottomStart, 1=BottomEnd, 2=TopStart, 3=TopEnd
+    fun enhancementOverlayPosition() = preferenceStore.getInt("pref_enhancement_overlay_position", 0)
+    // Overlay background opacity: 30-100%
+    fun enhancementOverlayOpacity() = preferenceStore.getInt("pref_enhancement_overlay_opacity", 85)
     // KMK -->
     // "Only upscale when downloading": bake upscaling into downloaded files (once) and read the
     // stored result, instead of upscaling live in the reader. Off by default = downloads stay original.
