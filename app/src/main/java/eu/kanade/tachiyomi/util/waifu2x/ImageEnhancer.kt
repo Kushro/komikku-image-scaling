@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.util.waifu2x
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import coil3.SingletonImageLoader
 import coil3.request.CachePolicy
@@ -19,6 +18,7 @@ import eu.kanade.tachiyomi.util.system.GLUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +46,21 @@ data class EnhancerState(
     val lastError: String? = null,
 )
 
+enum class PageUpscaleStatus { QUEUED, PROCESSING, DONE, FAILED }
+
+data class PageUpscaleRecord(
+    val pageIndex: Int,
+    val pageVariant: String = "",
+    val status: PageUpscaleStatus,
+    val enqueuedMs: Long = 0L,
+    val startMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val model: String = "",
+    val batchId: Int = 0,
+    val batchSize: Int = 1,
+    val error: String? = null,
+)
+
 object ImageEnhancer {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val pendingRequests = ConcurrentHashMap<String, Unit>()
@@ -56,8 +71,19 @@ object ImageEnhancer {
     private val _enhancerState = MutableStateFlow(EnhancerState())
     val enhancerState: StateFlow<EnhancerState> = _enhancerState.asStateFlow()
 
+    private val pageRecordMap = ConcurrentHashMap<String, PageUpscaleRecord>()
+    private val _pageRecords = MutableStateFlow<List<PageUpscaleRecord>>(emptyList())
+    val pageRecords: StateFlow<List<PageUpscaleRecord>> = _pageRecords.asStateFlow()
+
+    private val batchIdCounter = AtomicInteger(0)
+
     private val sessionCompleted = AtomicInteger(0)
     private val sessionFailed = AtomicInteger(0)
+
+    private fun setPageRecord(key: String, record: PageUpscaleRecord) {
+        pageRecordMap[key] = record
+        _pageRecords.value = pageRecordMap.values.sortedWith(compareBy({ it.pageIndex }, { it.pageVariant }))
+    }
 
     // Priority Queue order:
     // 1. Current visible primary page
@@ -76,18 +102,6 @@ object ImageEnhancer {
 
     @Volatile
     private var initialTargetEnqueued = false
-
-    @Volatile
-    private var activeMangaId = -1L
-
-    @Volatile
-    private var activeChapterId = -1L
-
-    @Volatile
-    private var activePageIndex = -1
-
-    @Volatile
-    private var activePageVariant = ""
 
     // Current page the user is viewing. Used to prioritize requests closest to this page.
     @Volatile
@@ -159,11 +173,12 @@ object ImageEnhancer {
                     // through Coil/the decoder one at a time, gather a window of queued pages and
                     // upscale them in a single server request, writing each result to the cache.
                     val strategy = remoteStrategyOrNull()
-                    if (strategy != null && strategy != STRATEGY_IMAGE) {
+                    if (strategy != null && strategy != RemoteUpscaleStrategy.IMAGE) {
                         val batch = mutableListOf(req)
-                        if (strategy == STRATEGY_BATCH_IMAGE || strategy == STRATEGY_BATCH_URL) {
-                            // KMK --> cap at 4 so a single batch can't block the queue for too long
-                            val window = minOf(preferences.realCuganPreloadSize().get().coerceAtLeast(1), 4)
+                        if (strategy == RemoteUpscaleStrategy.BATCH_IMAGE || strategy == RemoteUpscaleStrategy.BATCH_URL) {
+                            // KMK --> group up to 4 queued requests into one server call so a single
+                            // batch can't block the queue for too long
+                            val window = 4
                             // KMK <--
                             if (window > 1) queue.drainTo(batch, window - 1)
                         }
@@ -190,7 +205,7 @@ object ImageEnhancer {
         // back to the image bytes below when there's no usable http URL (local/downloaded
         // chapters, or localhost placeholders) — the batch worker then routes it as image data.
         val strategy = remoteStrategyOrNull()
-        if (strategy == STRATEGY_URL || strategy == STRATEGY_BATCH_URL) {
+        if (strategy == RemoteUpscaleStrategy.URL || strategy == RemoteUpscaleStrategy.BATCH_URL) {
             val usableUrl = page.imageUrl?.takeIf { it.isUsableRemoteUrl() }
             if (usableUrl != null) {
                 val fallbackStream = page.enhancementStream ?: page.stream
@@ -252,6 +267,23 @@ object ImageEnhancer {
 
         if (pendingRequests.putIfAbsent(requestKey, Unit) != null) return
 
+        if (!pageRecordMap.containsKey(requestKey)) {
+            setPageRecord(
+                requestKey,
+                PageUpscaleRecord(
+                    pageIndex = pageIndex,
+                    pageVariant = pageVariant,
+                    status = PageUpscaleStatus.QUEUED,
+                    enqueuedMs = System.currentTimeMillis(),
+                    model = if (preferences.enhancementMode().get() == EnhancementMode.REMOTE) {
+                        "Remote"
+                    } else {
+                        UpscaleModels.displayName(preferences.realCuganModel().get())
+                    },
+                ),
+            )
+        }
+
         if (isInitialTargetRequest) {
             initialTargetEnqueued = true
         }
@@ -276,7 +308,10 @@ object ImageEnhancer {
         initialTargetEnqueued = false
         sessionCompleted.set(0)
         sessionFailed.set(0)
+        batchIdCounter.set(0)
         _enhancerState.value = EnhancerState()
+        pageRecordMap.clear()
+        _pageRecords.value = emptyList()
         // KMK -->
         UpscaleStats.resetSession()
         // KMK <--
@@ -352,7 +387,7 @@ object ImageEnhancer {
             cached()?.let { return it }
             if (isFocusedTarget(pageIndex, pageVariant)) return null
             if (System.currentTimeMillis() >= graceDeadline) return null
-            kotlinx.coroutines.delay(250)
+            delay(250)
         }
 
         // Wait phase: the queue owns the page — poll for its cache write.
@@ -367,62 +402,18 @@ object ImageEnhancer {
                 // cleared, so one last look settles whether it succeeded.
                 return cached()
             }
-            kotlinx.coroutines.delay(500)
+            delay(500)
         }
         return null
     }
     // KMK <--
 
-    fun isActivelyProcessing(mangaId: Long, chapterId: Long, pageIndex: Int, pageVariant: String = ""): Boolean {
-        return activeMangaId == mangaId &&
-            activeChapterId == chapterId &&
-            activePageIndex == pageIndex &&
-            activePageVariant == pageVariant
-    }
-
-    fun cancel(mangaId: Long, chapterId: Long, pageIndex: Int, pageVariant: String = "") {
-        val requestKey = "${mangaId}_${chapterId}_${pageIndex}_$pageVariant"
-        if (pendingRequests.remove(requestKey) != null) {
-            val removed = queue.removeIf {
-                it.mangaId == mangaId && it.chapterId == chapterId && it.pageIndex == pageIndex && it.pageVariant == pageVariant
-            }
-            if (removed) {
-                logcat(LogPriority.DEBUG) { "ImageEnhancer: Cancelled page $pageIndex/$pageVariant" }
-            }
-        }
-    }
-
-    fun cancelRequestsLessThan(context: Context, mangaId: Long, chapterId: Long, thresholdPageIndex: Int) {
-        queue.removeIf { req ->
-            if (req.mangaId == mangaId && req.chapterId == chapterId && req.pageIndex < thresholdPageIndex) {
-                pendingRequests.remove("${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}")
-                logcat(LogPriority.DEBUG) { "ImageEnhancer: Pruned page ${req.pageIndex}/${req.pageVariant} (reason: < $thresholdPageIndex)" }
-                true
-            } else {
-                false
-            }
-        }
-    }
-
-    fun cancelRequestsGreaterThan(context: Context, mangaId: Long, chapterId: Long, thresholdPageIndex: Int) {
-        queue.removeIf { req ->
-            if (req.mangaId == mangaId && req.chapterId == chapterId && req.pageIndex > thresholdPageIndex) {
-                pendingRequests.remove("${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}")
-                logcat(LogPriority.DEBUG) { "ImageEnhancer: Pruned page ${req.pageIndex}/${req.pageVariant} (reason: > $thresholdPageIndex)" }
-                true
-            } else {
-                false
-            }
-        }
-    }
-
     private suspend fun processRequest(req: EnhanceRequest) {
+        val key = "${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}"
+        val startMs = System.currentTimeMillis()
         try {
-            activeMangaId = req.mangaId
-            activeChapterId = req.chapterId
-            activePageIndex = req.pageIndex
-            activePageVariant = req.pageVariant
             _enhancerState.value = _enhancerState.value.copy(activePage = req.pageIndex, queueSize = queue.size)
+            pageRecordMap[key]?.let { setPageRecord(key, it.copy(status = PageUpscaleStatus.PROCESSING, startMs = startMs)) }
             logcat(LogPriority.DEBUG) { "ImageEnhancer: Processing page ${req.pageIndex}/${req.pageVariant} (priority=${req.priority})" }
             val request = ImageRequest.Builder(req.context)
                 .data(req.data)
@@ -436,17 +427,17 @@ object ImageEnhancer {
                 .build()
 
             SingletonImageLoader.get(req.context).enqueue(request).job.await()
+            val durationMs = System.currentTimeMillis() - startMs
             sessionCompleted.incrementAndGet()
+            pageRecordMap[key]?.let { setPageRecord(key, it.copy(status = PageUpscaleStatus.DONE, durationMs = durationMs)) }
         } catch (e: Exception) {
+            val durationMs = System.currentTimeMillis() - startMs
             sessionFailed.incrementAndGet()
             _enhancerState.value = _enhancerState.value.copy(lastError = e.message)
+            pageRecordMap[key]?.let { setPageRecord(key, it.copy(status = PageUpscaleStatus.FAILED, durationMs = durationMs, error = e.message)) }
             throw e
         } finally {
-            activeMangaId = -1L
-            activeChapterId = -1L
-            activePageIndex = -1
-            activePageVariant = ""
-            pendingRequests.remove("${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}")
+            pendingRequests.remove(key)
             _enhancerState.value = _enhancerState.value.copy(
                 activePage = -1,
                 queueSize = queue.size,
@@ -456,18 +447,10 @@ object ImageEnhancer {
         }
     }
 
-    // KMK --> Remote batch/URL strategies (only used when enhancementMode == 3)
-    private const val STRATEGY_IMAGE = 0
-    private const val STRATEGY_BATCH_IMAGE = 1
-    private const val STRATEGY_URL = 2
-    private const val STRATEGY_BATCH_URL = 3
-
+    // KMK --> Remote batch/URL strategies (only used when enhancementMode == REMOTE)
     /** The active remote upscale strategy, or null when remote mode isn't selected. */
     private fun remoteStrategyOrNull(): Int? =
-        if (preferences.enhancementMode().get() == 3) preferences.remoteUpscaleStrategy().get() else null
-
-    private fun String.isUsableRemoteUrl(): Boolean =
-        startsWith("http", true) && !contains("127.0.0.1") && !contains("localhost")
+        if (preferences.enhancementMode().get() == EnhancementMode.REMOTE) preferences.remoteUpscaleStrategy().get() else null
 
     private suspend fun getSourceHeaders(mangaId: Long): Map<String, String> {
         val manga = getManga.await(mangaId) ?: return emptyMap()
@@ -485,24 +468,18 @@ object ImageEnhancer {
         val host = preferences.remoteUpscalerHost().get()
         val port = preferences.remoteUpscalerPort().get()
         ImageEnhancementCache.init(context)
-        val configHash = ImageEnhancementCache.getConfigHash(
-            noise = 0,
-            scale = 0,
-            inputScale = 100,
-            model = -1,
-            maxWidth = 0,
-            maxHeight = 0,
-            resizeEnabled = false,
-            remoteHash = "$host:$port",
-        )
+        val configHash = ImageEnhancementCache.getRemoteConfigHash(host, port)
 
         // Track the batch as "actively processing" so UI status checks reflect it.
         val first = batch.first()
-        activeMangaId = first.mangaId
-        activeChapterId = first.chapterId
-        activePageIndex = first.pageIndex
-        activePageVariant = first.pageVariant
         _enhancerState.value = _enhancerState.value.copy(activePage = first.pageIndex, queueSize = queue.size)
+        val batchId = batchIdCounter.incrementAndGet()
+        val batchStartMs = System.currentTimeMillis()
+        val completedBatchKeys = mutableSetOf<String>()
+        batch.forEach { req ->
+            val k = "${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}"
+            pageRecordMap[k]?.let { setPageRecord(k, it.copy(status = PageUpscaleStatus.PROCESSING, startMs = batchStartMs, batchId = batchId, batchSize = batch.size)) }
+        }
         try {
             logcat(LogPriority.DEBUG) { "ImageEnhancer: Batch-processing ${batch.size} page(s) via remote strategy" }
 
@@ -528,6 +505,9 @@ object ImageEnhancer {
                         if (bytes > 0L) {
                             batchSuccessCount++
                             batchBytesOut += bytes
+                            val k = "${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}"
+                            completedBatchKeys.add(k)
+                            pageRecordMap[k]?.let { setPageRecord(k, it.copy(status = PageUpscaleStatus.DONE, durationMs = System.currentTimeMillis() - batchStartMs)) }
                         }
                         // KMK <--
                     } else if (req.fallbackStream != null) {
@@ -549,6 +529,9 @@ object ImageEnhancer {
                             if (bytes > 0L) {
                                 batchSuccessCount++
                                 batchBytesOut += bytes
+                                val k = "${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}"
+                                completedBatchKeys.add(k)
+                                pageRecordMap[k]?.let { r -> setPageRecord(k, r.copy(status = PageUpscaleStatus.DONE, durationMs = System.currentTimeMillis() - batchStartMs)) }
                             }
                         }
                         // KMK <--
@@ -565,6 +548,9 @@ object ImageEnhancer {
                         if (bytes > 0L) {
                             batchSuccessCount++
                             batchBytesOut += bytes
+                            val k = "${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}"
+                            completedBatchKeys.add(k)
+                            pageRecordMap[k]?.let { r -> setPageRecord(k, r.copy(status = PageUpscaleStatus.DONE, durationMs = System.currentTimeMillis() - batchStartMs)) }
                         }
                     }
                     // KMK <--
@@ -577,13 +563,27 @@ object ImageEnhancer {
             logcat(LogPriority.ERROR, e) { "ImageEnhancer: Batch processing failed" }
             sessionFailed.addAndGet(batch.size)
             _enhancerState.value = _enhancerState.value.copy(lastError = e.message, sessionFailed = sessionFailed.get())
+            batch.forEach { req ->
+                val k = "${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}"
+                if (k !in completedBatchKeys) {
+                    pageRecordMap[k]?.let { r ->
+                        if (r.status == PageUpscaleStatus.PROCESSING) {
+                            setPageRecord(k, r.copy(status = PageUpscaleStatus.FAILED, durationMs = System.currentTimeMillis() - batchStartMs, error = e.message))
+                        }
+                    }
+                }
+            }
         } finally {
-            activeMangaId = -1L
-            activeChapterId = -1L
-            activePageIndex = -1
-            activePageVariant = ""
-            batch.forEach {
-                pendingRequests.remove("${it.mangaId}_${it.chapterId}_${it.pageIndex}_${it.pageVariant}")
+            batch.forEach { req ->
+                val k = "${req.mangaId}_${req.chapterId}_${req.pageIndex}_${req.pageVariant}"
+                pendingRequests.remove(k)
+                if (k !in completedBatchKeys) {
+                    pageRecordMap[k]?.let { r ->
+                        if (r.status == PageUpscaleStatus.PROCESSING) {
+                            setPageRecord(k, r.copy(status = PageUpscaleStatus.FAILED, durationMs = System.currentTimeMillis() - batchStartMs))
+                        }
+                    }
+                }
             }
             _enhancerState.value = _enhancerState.value.copy(
                 activePage = -1,
@@ -596,40 +596,33 @@ object ImageEnhancer {
 
     /**
      * Save raw batch result bytes to cache. Writes bytes directly (no re-encoding) unless the
-     * image exceeds the device texture limit, in which case it falls back to decode + scale + save.
+     * image exceeds the display limits, in which case it falls back to decode + clamp + save.
      * Returns the byte count written on success, or 0 on failure.
      */
     private fun saveBatchResult(req: EnhanceRequest, configHash: String, bytes: ByteArray): Long {
         // KMK -->
-        val limit = minOf(GLUtil.DEVICE_TEXTURE_LIMIT, 16383)
+        val limit = minOf(GLUtil.DEVICE_TEXTURE_LIMIT, ImageEnhancementCache.MAX_WEBP_DIMENSION)
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
         if (opts.outWidth > limit || opts.outHeight > limit) {
-            // Rare path: decode → scale → save as WebP (server already clamps, so this is a safety net)
-            var out = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return 0L
-            try {
-                val ratio = minOf(limit.toFloat() / out.width, limit.toFloat() / out.height)
-                val w = (out.width * ratio).toInt().coerceAtLeast(1)
-                val h = (out.height * ratio).toInt().coerceAtLeast(1)
-                val scaled = Bitmap.createScaledBitmap(out, w, h, true)
-                if (scaled != out) {
-                    out.recycle()
-                    out = scaled
-                }
+            // Rare path: decode → clamp → save as WebP (server already clamps, so this is a safety net)
+            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return 0L
+            val out = ImageEnhancementCache.clampToDisplayLimits(decoded)
+            return try {
                 val bytesOut = out.byteCount.toLong()
-                ImageEnhancementCache.saveToCache(req.mangaId, req.chapterId, req.pageIndex, configHash, out, req.pageVariant)
-                return bytesOut
+                val saved = ImageEnhancementCache.saveToCache(req.mangaId, req.chapterId, req.pageIndex, configHash, out, req.pageVariant)
+                if (saved != null) bytesOut else 0L
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e) { "ImageEnhancer: Failed to cache (scaled) batch result for page ${req.pageIndex}" }
-                return 0L
+                0L
             } finally {
-                if (!out.isRecycled) out.recycle()
+                out.recycle()
             }
         }
         // Fast path: write server bytes directly — no decode/re-encode, no quality loss
         return try {
-            ImageEnhancementCache.saveBytesToCache(req.mangaId, req.chapterId, req.pageIndex, configHash, bytes, req.pageVariant)
-            bytes.size.toLong()
+            val saved = ImageEnhancementCache.saveBytesToCache(req.mangaId, req.chapterId, req.pageIndex, configHash, bytes, req.pageVariant)
+            if (saved != null) bytes.size.toLong() else 0L
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "ImageEnhancer: Failed to cache batch result for page ${req.pageIndex}" }
             0L

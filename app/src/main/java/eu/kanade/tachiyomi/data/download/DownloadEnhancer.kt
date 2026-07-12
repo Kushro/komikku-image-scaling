@@ -3,10 +3,12 @@ package eu.kanade.tachiyomi.data.download
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.image.ImageFilter
 import eu.kanade.tachiyomi.util.system.GLUtil
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
 import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaler
 import eu.kanade.tachiyomi.util.waifu2x.Waifu2x
@@ -43,7 +45,7 @@ object DownloadEnhancer {
         pageIndex: Int,
     ): Boolean = withContext(Dispatchers.IO) {
         // KMK --> Remote mode: upscale the file via the server instead of the local NCNN models.
-        if (preferences.enhancementMode().get() == 3) {
+        if (preferences.enhancementMode().get() == EnhancementMode.REMOTE) {
             return@withContext enhanceImageRemote(imageFile, preferences)
         }
         // KMK <--
@@ -125,7 +127,9 @@ object DownloadEnhancer {
                 var result = ImageFilter.applyInkFilterIfEnabled(processed, Injekt.get())
 
                 // Output resolution limit (prevent Canvas errors)
-                val textureLimit = GLUtil.DEVICE_TEXTURE_LIMIT
+                // Cap at the WebP encoder limit too: compress() fails silently above it and
+                // openOutputStream() has already truncated the downloaded file at that point.
+                val textureLimit = minOf(GLUtil.DEVICE_TEXTURE_LIMIT, ImageEnhancementCache.MAX_WEBP_DIMENSION)
                 if (result.width > textureLimit || result.height > textureLimit) {
                     val widthRatio = textureLimit.toFloat() / result.width
                     val heightRatio = textureLimit.toFloat() / result.height
@@ -178,7 +182,9 @@ object DownloadEnhancer {
             if (processed != null) {
                 var result = ImageFilter.applyInkFilterIfEnabled(processed, Injekt.get())
 
-                val textureLimit = GLUtil.DEVICE_TEXTURE_LIMIT
+                // Cap at the WebP encoder limit too: compress() fails silently above it and
+                // openOutputStream() has already truncated the downloaded file at that point.
+                val textureLimit = minOf(GLUtil.DEVICE_TEXTURE_LIMIT, ImageEnhancementCache.MAX_WEBP_DIMENSION)
                 if (result.width > textureLimit || result.height > textureLimit) {
                     val widthRatio = textureLimit.toFloat() / result.width
                     val heightRatio = textureLimit.toFloat() / result.height
@@ -269,19 +275,10 @@ object DownloadEnhancer {
      * server host/port hash so download markers line up with the reader's remote cache keys.
      */
     fun computeConfigHash(preferences: ReaderPreferences): String {
-        if (preferences.enhancementMode().get() == 3) {
+        if (preferences.enhancementMode().get() == EnhancementMode.REMOTE) {
             val host = preferences.remoteUpscalerHost().get()
             val port = preferences.remoteUpscalerPort().get()
-            return ImageEnhancementCache.getConfigHash(
-                noise = 0,
-                scale = 0,
-                inputScale = 100,
-                model = -1,
-                maxWidth = 0,
-                maxHeight = 0,
-                resizeEnabled = false,
-                remoteHash = "$host:$port",
-            )
+            return ImageEnhancementCache.getRemoteConfigHash(host, port)
         }
         return ImageEnhancementCache.getConfigHash(
             noise = preferences.realCuganNoiseLevel().get(),
@@ -298,7 +295,12 @@ object DownloadEnhancer {
         val name = file.name?.lowercase() ?: return Bitmap.CompressFormat.JPEG
         return when {
             name.endsWith(".png") -> Bitmap.CompressFormat.PNG
-            name.endsWith(".webp") -> Bitmap.CompressFormat.WEBP
+            name.endsWith(".webp") -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Bitmap.CompressFormat.WEBP_LOSSY
+            } else {
+                @Suppress("DEPRECATION")
+                Bitmap.CompressFormat.WEBP
+            }
             else -> Bitmap.CompressFormat.JPEG
         }
     }

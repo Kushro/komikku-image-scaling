@@ -17,9 +17,12 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
 sealed class ConnectionStatus {
-    object Checking : ConnectionStatus()
+    data object Checking : ConnectionStatus()
     data class Ok(val modelName: String?) : ConnectionStatus()
-    object Failed : ConnectionStatus()
+
+    /** Server reachable, but reports it can't upscale yet (missing binaries/model). */
+    data object NotReady : ConnectionStatus()
+    data object Failed : ConnectionStatus()
 }
 
 class ReaderSettingsScreenModel(
@@ -51,13 +54,11 @@ class ReaderSettingsScreenModel(
             _connectionStatus.value = ConnectionStatus.Checking
             val host = preferences.remoteUpscalerHost().get()
             val port = preferences.remoteUpscalerPort().get()
-            val ok = RemoteUpscaler.checkHealth(host, port)
-            if (ok) {
-                val statusMap = RemoteUpscaler.checkStatus(host, port)
-                val modelName = statusMap?.get("model_display_name") as? String
-                _connectionStatus.value = ConnectionStatus.Ok(modelName)
-            } else {
-                _connectionStatus.value = ConnectionStatus.Failed
+            val statusMap = RemoteUpscaler.checkStatus(host, port)
+            _connectionStatus.value = when {
+                statusMap == null -> ConnectionStatus.Failed
+                statusMap["upscaler_ready"] as? Boolean == false -> ConnectionStatus.NotReady
+                else -> ConnectionStatus.Ok(statusMap["model_display_name"] as? String)
             }
         }
     }
@@ -69,16 +70,7 @@ class ReaderSettingsScreenModel(
             val chapterId = state.currentChapter?.chapter?.id ?: return@launch
             val host = preferences.remoteUpscalerHost().get()
             val port = preferences.remoteUpscalerPort().get()
-            val configHash = ImageEnhancementCache.getConfigHash(
-                noise = 0,
-                scale = 0,
-                inputScale = 100,
-                model = -1,
-                maxWidth = 0,
-                maxHeight = 0,
-                resizeEnabled = false,
-                remoteHash = "$host:$port",
-            )
+            val configHash = ImageEnhancementCache.getRemoteConfigHash(host, port)
             ImageEnhancementCache.clearForChapter(mangaId, chapterId, configHash)
             // Rebuild the viewer so the now-uncached pages re-run the remote upscale pipeline.
             onRequestReload()

@@ -81,26 +81,26 @@ object RemoteUpscaler {
                 .post(body)
                 .build()
 
-            val response = client.newCall(request).execute()
+            client.newCall(request).execute().use { response ->
+                onStatus("Processing on server…")
 
-            onStatus("Processing on server…")
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Remote upscaler returned HTTP ${response.code}")
+                    onStatus("Server error: HTTP ${response.code}")
+                    return@withContext null
+                }
 
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Remote upscaler returned HTTP ${response.code}")
-                onStatus("Server error: HTTP ${response.code}")
-                return@withContext null
+                onStatus("Downloading result…")
+
+                // 3. Decode response as bitmap
+                val responseBody = response.body.bytes()
+                val options = BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                val result = BitmapFactory.decodeByteArray(responseBody, 0, responseBody.size, options)
+                if (result != null) onStatus("Enhancement complete")
+                result
             }
-
-            onStatus("Downloading result…")
-
-            // 3. Decode response as bitmap
-            val responseBody = response.body!!.bytes()
-            val options = BitmapFactory.Options().apply {
-                inPreferredConfig = Bitmap.Config.ARGB_8888
-            }
-            val result = BitmapFactory.decodeByteArray(responseBody, 0, responseBody.size, options)
-            if (result != null) onStatus("Enhancement complete")
-            result
         } catch (e: ConnectException) {
             Log.e(TAG, "Cannot connect to remote upscaler at $host:$port — is the server running?")
             onStatus("Connection failed — is the server running?")
@@ -145,21 +145,22 @@ object RemoteUpscaler {
                 .post(payload.toRequestBody(jsonMediaType))
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Remote /upscale/url returned HTTP ${response.code}")
-                onStatus("Server error: HTTP ${response.code}")
-                return@withContext null
-            }
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Remote /upscale/url returned HTTP ${response.code}")
+                    onStatus("Server error: HTTP ${response.code}")
+                    return@withContext null
+                }
 
-            onStatus("Downloading result…")
-            val responseBody = response.body!!.bytes()
-            val options = BitmapFactory.Options().apply {
-                inPreferredConfig = Bitmap.Config.ARGB_8888
+                onStatus("Downloading result…")
+                val responseBody = response.body.bytes()
+                val options = BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                val result = BitmapFactory.decodeByteArray(responseBody, 0, responseBody.size, options)
+                if (result != null) onStatus("Enhancement complete")
+                result
             }
-            val result = BitmapFactory.decodeByteArray(responseBody, 0, responseBody.size, options)
-            if (result != null) onStatus("Enhancement complete")
-            result
         } catch (e: ConnectException) {
             Log.e(TAG, "Cannot connect to remote upscaler at $host:$port — is the server running?")
             onStatus("Connection failed — is the server running?")
@@ -201,14 +202,15 @@ object RemoteUpscaler {
                 .post(payload.toRequestBody(jsonMediaType))
                 .build()
 
-            val response = batchClient.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Remote /upscale/batch returned HTTP ${response.code}")
-                onStatus("Server error: HTTP ${response.code}")
-                return@withContext List(images.size) { null }
+            batchClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Remote /upscale/batch returned HTTP ${response.code}")
+                    onStatus("Server error: HTTP ${response.code}")
+                    return@withContext List(images.size) { null }
+                }
+                onStatus("Received batch result…")
+                parseBatchResponse(response.body.string(), images.size)
             }
-            onStatus("Received batch result…")
-            parseBatchResponse(response.body!!.string(), images.size)
         } catch (e: Exception) {
             Log.e(TAG, "Remote /upscale/batch failed: ${e.message}", e)
             onStatus("Remote batch enhancement failed")
@@ -243,14 +245,15 @@ object RemoteUpscaler {
                 .post(payload.toRequestBody(jsonMediaType))
                 .build()
 
-            val response = batchClient.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Remote /upscale/batch/url returned HTTP ${response.code}")
-                onStatus("Server error: HTTP ${response.code}")
-                return@withContext List(urls.size) { null }
+            batchClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Remote /upscale/batch/url returned HTTP ${response.code}")
+                    onStatus("Server error: HTTP ${response.code}")
+                    return@withContext List(urls.size) { null }
+                }
+                onStatus("Received batch result…")
+                parseBatchResponse(response.body.string(), urls.size)
             }
-            onStatus("Received batch result…")
-            parseBatchResponse(response.body!!.string(), urls.size)
         } catch (e: Exception) {
             Log.e(TAG, "Remote /upscale/batch/url failed: ${e.message}", e)
             onStatus("Remote batch enhancement failed")
@@ -287,40 +290,10 @@ object RemoteUpscaler {
     }
 
     /**
-     * Check if the remote upscaler server is alive.
-     *
-     * @return true if server responds with 200 OK, false otherwise
-     */
-    suspend fun checkHealth(host: String, port: Int): Boolean = withContext(Dispatchers.IO) {
-        if (host.isBlank()) return@withContext false
-        try {
-            val request = Request.Builder()
-                .url("http://$host:$port/health")
-                .get()
-                .build()
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: return@withContext false
-                // Server reports upscaler_ready:false when binaries/model aren't ready yet.
-                return@withContext body.contains("\"upscaler_ready\":true")
-            }
-            // Fall back to /status if /health is not found (older server)
-            if (response.code == 404) {
-                val statusRequest = Request.Builder()
-                    .url("http://$host:$port/status")
-                    .get()
-                    .build()
-                return@withContext client.newCall(statusRequest).execute().isSuccessful
-            }
-            false
-        } catch (e: Exception) {
-            Log.w(TAG, "Health check failed for $host:$port — ${e.message}")
-            false
-        }
-    }
-
-    /**
      * Check if the remote upscaler server is reachable.
+     *
+     * Callers decide readiness from the returned map: an explicit `upscaler_ready == false`
+     * means the server is up but can't upscale yet (missing binaries/model).
      *
      * @return Status response map, or null if unreachable
      */
@@ -333,39 +306,28 @@ object RemoteUpscaler {
                 .get()
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext null
-
-            val body = response.body!!.string()
-            // Parse simple JSON manually to avoid adding a JSON dependency
-            parseStatusJson(body)
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                parseStatusJson(response.body.string())
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Remote upscaler status check failed: ${e.message}")
             null
         }
     }
 
-    /**
-     * Minimal JSON parser for the /status response.
-     * Avoids pulling in kotlinx-serialization or Moshi for a single use case.
-     */
+    /** Parse the flat /status JSON object into a plain map (JSONObject.NULL becomes null). */
     private fun parseStatusJson(json: String): Map<String, Any?> {
-        val result = mutableMapOf<String, Any?>()
-        // Strip outer braces and split by commas, handling quoted strings
-        val content = json.trim().removeSurrounding("{", "}")
-        val regex = """"(\w+)":\s*("(?:[^"\\]|\\.)*"|null|true|false|[\d.]+)""".toRegex()
-        regex.findAll(content).forEach { match ->
-            val key = match.groupValues[1]
-            val rawValue = match.groupValues[2]
-            result[key] = when {
-                rawValue == "null" -> null
-                rawValue == "true" -> true
-                rawValue == "false" -> false
-                rawValue.startsWith("\"") -> rawValue.removeSurrounding("\"")
-                rawValue.contains(".") -> rawValue.toDouble()
-                else -> rawValue.toIntOrNull() ?: rawValue.toLongOrNull()
+        return try {
+            val obj = JSONObject(json)
+            buildMap {
+                obj.keys().forEach { key ->
+                    put(key, obj.get(key).takeIf { it != JSONObject.NULL })
+                }
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse /status response: ${e.message}")
+            emptyMap()
         }
-        return result
     }
 }

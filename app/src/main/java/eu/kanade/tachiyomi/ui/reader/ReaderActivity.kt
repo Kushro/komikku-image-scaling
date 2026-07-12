@@ -26,6 +26,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -118,6 +119,7 @@ import eu.kanade.tachiyomi.util.system.openInBrowser
 import eu.kanade.tachiyomi.util.system.toShareIntent
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.view.setComposeContent
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import exh.source.isEhBasedSource
 import exh.util.defaultReaderType
@@ -368,6 +370,9 @@ class ReaderActivity : BaseActivity() {
                 val overlayDetailRaw by readerPreferences.enhancementOverlayDetail().collectAsState()
                 val overlayPosition by readerPreferences.enhancementOverlayPosition().collectAsState()
                 val overlayOpacityPct by readerPreferences.enhancementOverlayOpacity().collectAsState()
+                val overlaySize by readerPreferences.enhancementOverlaySize().collectAsState()
+                val overlayMarginDp by readerPreferences.enhancementOverlayMarginDp().collectAsState()
+                val overlayStyle by readerPreferences.enhancementOverlayStyle().collectAsState()
                 val preloadStatus = state.preloadStatus
                 val enhancerState by ImageEnhancer.enhancerState.collectAsState()
 
@@ -385,27 +390,57 @@ class ReaderActivity : BaseActivity() {
                     } else {
                         0f
                     }
+                    val overlayTextStyle = if (overlaySize >= 2) {
+                        MaterialTheme.typography.labelMedium
+                    } else {
+                        MaterialTheme.typography.labelSmall
+                    }
+                    val barHeightDp = when (overlaySize) {
+                        0 -> 2.dp
+                        2 -> 4.dp
+                        else -> 3.dp
+                    }
+                    val innerHPad = when (overlaySize) {
+                        0 -> 6.dp
+                        2 -> 10.dp
+                        else -> 8.dp
+                    }
+                    val innerVPad = when (overlaySize) {
+                        0 -> 3.dp
+                        2 -> 6.dp
+                        else -> 4.dp
+                    }
+                    val surfaceColor = when (overlayStyle) {
+                        1, 2 -> ComposeColor.Transparent
+                        else -> MaterialTheme.colorScheme.surface.copy(alpha = overlayOpacityPct / 100f)
+                    }
+                    val overlaySurfaceBorder: BorderStroke? = if (overlayStyle == 1) {
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = overlayOpacityPct / 100f))
+                    } else {
+                        null
+                    }
                     Column(
                         modifier = Modifier
                             .align(overlayAlignment)
                             .navigationBarsPadding()
-                            .padding(8.dp)
+                            .padding(overlayMarginDp.dp)
                             .clickable { viewModel.openSettingsDialog() },
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = overlayOpacityPct / 100f),
+                            color = surfaceColor,
                             shape = RoundedCornerShape(4.dp),
+                            border = overlaySurfaceBorder,
                         ) {
                             Column(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = innerHPad, vertical = innerVPad),
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
                                 LinearProgressIndicator(
                                     progress = { progressValue },
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(2.dp),
+                                        .height(barHeightDp),
                                     color = when {
                                         hasError -> MaterialTheme.colorScheme.error
                                         preloadStatus.loading > 0 -> MaterialTheme.colorScheme.primary
@@ -420,7 +455,7 @@ class ReaderActivity : BaseActivity() {
                                         if (hasError) {
                                             Text(
                                                 text = "⚠",
-                                                style = MaterialTheme.typography.labelSmall,
+                                                style = overlayTextStyle,
                                                 color = MaterialTheme.colorScheme.error,
                                             )
                                         }
@@ -431,7 +466,7 @@ class ReaderActivity : BaseActivity() {
                                                 preloadStatus.loading,
                                                 preloadStatus.max,
                                             ),
-                                            style = MaterialTheme.typography.labelSmall,
+                                            style = overlayTextStyle,
                                             color = MaterialTheme.colorScheme.onSurface,
                                         )
                                     }
@@ -439,7 +474,7 @@ class ReaderActivity : BaseActivity() {
                                 if (effectiveDetail >= 3 && state.processingStatus != null) {
                                     Text(
                                         text = state.processingStatus!!,
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = overlayTextStyle,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
@@ -754,7 +789,7 @@ class ReaderActivity : BaseActivity() {
         val cropBorderWebtoon by readerPreferences.cropBordersWebtoon().collectAsState()
         // KMK -->
         val imageEnhancementMode by readerPreferences.enhancementMode().collectAsState()
-        val imageEnhancementEnabled = imageEnhancementMode != 0
+        val imageEnhancementEnabled = imageEnhancementMode != EnhancementMode.NONE
         // KMK <--
         // SY -->
         val readingMode = viewModel.getMangaReadingMode()
@@ -1545,13 +1580,13 @@ class ReaderActivity : BaseActivity() {
             // SY <--
 
             // KMK --> Migrate the removed legacy "Enhance only on download" mode (1) to the
-            // on-device mode (2) plus the "only upscale when downloading" toggle, matching old behavior.
+            // on-device mode plus the "only upscale when downloading" toggle, matching old behavior.
             if (readerPreferences.enhancementMode().get() == 1) {
-                readerPreferences.enhancementMode().set(2)
+                readerPreferences.enhancementMode().set(EnhancementMode.LOCAL)
                 readerPreferences.enhanceOnDownload().set(true)
             }
             if (readerPreferences.lastEnhancementMode().get() == 1) {
-                readerPreferences.lastEnhancementMode().set(2)
+                readerPreferences.lastEnhancementMode().set(EnhancementMode.LOCAL)
             }
             // KMK <--
 

@@ -222,8 +222,10 @@ class ReaderPreferences(
     fun realCuganScale() = preferenceStore.getInt("pref_realcugan_scale", 2)
     fun realCuganInputScale() = preferenceStore.getInt("pref_realcugan_input_scale", 100)
     fun realCuganModel() = preferenceStore.getInt("pref_realcugan_model", 0)
-    fun realCuganPreloadSize() = preferenceStore.getInt("pref_realcugan_preload_size", 3)
-    fun realCuganProEnabled() = preferenceStore.getBoolean("pref_realcugan_pro_enabled", false)
+    // Preload window as a percentage of the chapter's total page count (25/50/100). Normalizes the
+    // runway between long-page manga (few, very tall pages) and webtoons (many short pages) instead
+    // of a fixed page count. Effective window = ceil(totalPages * percent / 100), min 1 when > 0.
+    fun realCuganPreloadPercent() = preferenceStore.getInt("pref_realcugan_preload_percent", 50)
     fun realCuganPerformanceMode() = preferenceStore.getInt("pref_realcugan_performance_mode", 0)
     fun realCuganMaxSizeWidth() = preferenceStore.getInt("pref_realcugan_max_size_width", 1600)
     fun realCuganMaxSizeHeight() = preferenceStore.getInt("pref_realcugan_max_size_height", 1600)
@@ -247,8 +249,14 @@ class ReaderPreferences(
     fun enhancementOverlayDetail() = preferenceStore.getInt("pref_enhancement_overlay_detail", -1)
     // Overlay position: 0=BottomStart, 1=BottomEnd, 2=TopStart, 3=TopEnd
     fun enhancementOverlayPosition() = preferenceStore.getInt("pref_enhancement_overlay_position", 0)
-    // Overlay background opacity: 30-100%
+    // Overlay background opacity: 10-100%
     fun enhancementOverlayOpacity() = preferenceStore.getInt("pref_enhancement_overlay_opacity", 85)
+    // Overlay size: 0=Small, 1=Medium, 2=Large
+    fun enhancementOverlaySize() = preferenceStore.getInt("pref_enhancement_overlay_size", 1)
+    // Overlay margin from screen edge in dp
+    fun enhancementOverlayMarginDp() = preferenceStore.getInt("pref_enhancement_overlay_margin", 8)
+    // Overlay style: 0=Filled, 1=Outlined, 2=Minimal
+    fun enhancementOverlayStyle() = preferenceStore.getInt("pref_enhancement_overlay_style", 0)
     // KMK -->
     // "Only upscale when downloading": bake upscaling into downloaded files (once) and read the
     // stored result, instead of upscaling live in the reader. Off by default = downloads stay original.
