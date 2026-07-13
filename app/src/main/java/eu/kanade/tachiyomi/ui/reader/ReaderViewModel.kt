@@ -52,6 +52,7 @@ import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.DiskUtil.MAX_FILE_NAME_BYTES
 import eu.kanade.tachiyomi.util.storage.cacheImageDir
 import eu.kanade.tachiyomi.util.waifu2x.EnhancementMode
+import eu.kanade.tachiyomi.util.waifu2x.EnhancementOverlayType
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancementCache
 import eu.kanade.tachiyomi.util.waifu2x.ImageEnhancer
 import exh.metadata.metadata.RaisedSearchMetadata
@@ -416,7 +417,7 @@ class ReaderViewModel @JvmOverloads constructor(
 
         // KMK -->
         ImageEnhancementCache.maxCacheSizeMb = readerPreferences.enhancementCacheMaxSizeMb().get()
-        // Migrate old per-boolean overlay prefs to the new detail-level pref on first run.
+        // Migrate old per-boolean overlay prefs to the legacy detail-level pref on first run.
         if (readerPreferences.enhancementOverlayDetail().get() == -1) {
             val showPreload = readerPreferences.realCuganShowPreloadStatus().get()
             val showProcessing = readerPreferences.realCuganShowStatus().get()
@@ -428,21 +429,46 @@ class ReaderViewModel @JvmOverloads constructor(
                 },
             )
         }
+        // Migrate the legacy detail level to the overlay-type pref (variants A-D).
+        if (readerPreferences.enhancementOverlayType().get() == -1) {
+            readerPreferences.enhancementOverlayType().set(
+                when (readerPreferences.enhancementOverlayDetail().get()) {
+                    1 -> EnhancementOverlayType.BAR
+                    2 -> EnhancementOverlayType.COUNTER
+                    3 -> EnhancementOverlayType.DETAILED
+                    else -> EnhancementOverlayType.OFF
+                },
+            )
+        }
         // KMK <--
 
-        // KMK --> Keep the overlay counters fresh while the overlay is visible, even when
-        // the user isn't turning pages (background upscales finishing shift loaded/loading counts).
+        // KMK --> Keep the overlay counters and the page-slider notches fresh while visible,
+        // even when the user isn't turning pages (downloads/upscales finishing in background).
         viewModelScope.launchIO {
             while (true) {
-                val status = if (readerPreferences.enhancementOverlayDetail().get().coerceAtLeast(0) > 0) {
-                    val page = lastSelectedPage
-                    val pages = lastSelectedPages
+                val page = lastSelectedPage
+                val pages = lastSelectedPages
+                val status = if (readerPreferences.enhancementOverlayType().get() > EnhancementOverlayType.OFF) {
                     if (page != null && pages != null) computePreloadStatus(page, pages) else null
                 } else {
                     null
                 }
-                if (state.value.preloadStatus != status) {
-                    mutableState.update { it.copy(preloadStatus = status) }
+                val (downloadNotch, upscaleNotch) = if (pages != null) {
+                    computeNotchFractions(pages)
+                } else {
+                    null to null
+                }
+                if (state.value.preloadStatus != status ||
+                    state.value.downloadNotchFraction != downloadNotch ||
+                    state.value.upscaleNotchFraction != upscaleNotch
+                ) {
+                    mutableState.update {
+                        it.copy(
+                            preloadStatus = status,
+                            downloadNotchFraction = downloadNotch,
+                            upscaleNotchFraction = upscaleNotch,
+                        )
+                    }
                 }
                 delay(500)
             }
@@ -790,19 +816,11 @@ class ReaderViewModel @JvmOverloads constructor(
     private var lastSelectedPages: List<ReaderPage>? = null
 
     /**
-     * Effective preload window: the configured [ReaderPreferences.realCuganPreloadPercent] applied
-     * to the chapter's total page count. This is the single source of truth so the prefetch window
-     * and the status-overlay counter always agree. Returns 0 when preloading is off (percent <= 0).
-     */
-    private fun effectivePreloadWindow(totalPages: Int): Int {
-        val percent = readerPreferences.realCuganPreloadPercent().get()
-        if (percent <= 0 || totalPages <= 0) return 0
-        return kotlin.math.ceil(totalPages * percent / 100.0).toInt().coerceAtLeast(1)
-    }
-
-    /**
-     * Enqueues the current page and the next [effectivePreloadWindow] pages for background
-     * enhancement (on-device or remote), so they are cached before the user reaches them.
+     * Enqueues the current page and everything after it for background enhancement (on-device
+     * or remote). The window is intentionally unbounded: each page is enqueued only once its
+     * download finishes, so the *page preload* setting ([ReaderPreferences.preloadSize], used by
+     * the page loader) is what actually paces how far ahead upscaling runs — upscaling simply
+     * follows the download frontier through the chapter.
      * No-op when enhancement is off or "only upscale when downloading" is enabled (no live work).
      */
     private fun prefetchEnhancement(currentPage: ReaderPage, pages: List<ReaderPage>) {
@@ -822,7 +840,7 @@ class ReaderViewModel @JvmOverloads constructor(
         // Cancel any in-flight prefetch from a previous page so stale waiters don't pile up.
         prefetchJob?.cancel()
 
-        val count = effectivePreloadWindow(pages.size)
+        val count = pages.lastIndex - currentIndex
         // Reading each page's source stream is blocking IO, so build/enqueue requests off the main thread.
         prefetchJob = viewModelScope.launchIO {
             val context = Injekt.get<Application>()
@@ -869,10 +887,12 @@ class ReaderViewModel @JvmOverloads constructor(
     }
 
     /**
-     * Counts, for the [effectivePreloadWindow] pages *after* the current one, how
-     * many have finished upscaling (cached, skipped, or baked-in at download) vs. are still queued/
-     * processing. Returns null when live preloading doesn't apply (enhancement off, "only upscale
-     * when downloading", or reading an already-upscaled downloaded chapter), so the overlay hides.
+     * Counts, for the pages *after* the current one that the page loader has already downloaded,
+     * how many have finished upscaling (cached, skipped, or baked-in at download) vs. are still
+     * queued/processing. The denominator is the download frontier itself — upscaling follows the
+     * page-preload setting, so "max" grows as more pages finish downloading. Returns null when
+     * live preloading doesn't apply (enhancement off, "only upscale when downloading", or reading
+     * an already-upscaled downloaded chapter), so the overlay hides.
      */
     private fun computePreloadStatus(currentPage: ReaderPage, pages: List<ReaderPage>): PreloadStatus? {
         val mode = readerPreferences.enhancementMode().get()
@@ -885,39 +905,87 @@ class ReaderViewModel @JvmOverloads constructor(
         val currentIndex = pages.indexOf(currentPage)
         if (currentIndex == -1) return null
 
-        // Window from the configured percentage, then clamped to the pages that actually exist
-        // ahead of the current one — so near a chapter's end the overlay shows e.g. 2/2 instead of
-        // 2/15. No pages ahead → nothing to preload, so hide the overlay.
-        val count = minOf(effectivePreloadWindow(pages.size), pages.lastIndex - currentIndex)
-        if (count <= 0) return null
-
         ImageEnhancementCache.init(Injekt.get<Application>())
         val configHash = currentEnhancementConfigHash()
 
         var loaded = 0
         var loading = 0
-        for (offset in 1..count) {
+        var downloaded = 0
+        for (offset in 1..(pages.lastIndex - currentIndex)) {
             val target = pages.getOrNull(currentIndex + offset) ?: break
             val mangaId = target.chapter.chapter.manga_id ?: -1L
             val chapterId = target.chapter.chapter.id ?: -1L
             val variant = target.enhancementKeySuffix
             when {
                 // Already upscaled (baked at download) — counts as finished, no live work needed.
-                target.alreadyUpscaled -> loaded++
+                target.alreadyUpscaled -> {
+                    downloaded++
+                    loaded++
+                }
                 mangaId == -1L || chapterId == -1L -> {
                     // Can't key the cache/queue for this page; leave it out of the counts.
                 }
                 // Skipped pages never produce a cache entry (too large); treat as terminal/done so
                 // the counter isn't stuck below max forever.
                 ImageEnhancementCache.isCached(mangaId, chapterId, target.index, configHash, variant) ||
-                    ImageEnhancementCache.isSkipped(mangaId, chapterId, target.index, configHash, variant) -> loaded++
+                    ImageEnhancementCache.isSkipped(mangaId, chapterId, target.index, configHash, variant) -> {
+                    downloaded++
+                    loaded++
+                }
                 // Queued or actively being upscaled.
-                ImageEnhancer.hasRequest(mangaId, chapterId, target.index, variant) -> loading++
-                // Otherwise the page isn't ready to enqueue yet (its source hasn't loaded); not counted.
+                ImageEnhancer.hasRequest(mangaId, chapterId, target.index, variant) -> {
+                    downloaded++
+                    loading++
+                }
+                // Downloaded but not enqueued yet (the prefetch loop is about to pick it up).
+                target.status == Page.State.Ready -> downloaded++
+                // Not downloaded yet — outside the live window; the counter grows as the page
+                // loader advances.
             }
         }
 
-        return PreloadStatus(loaded = loaded, loading = loading, max = count)
+        // Nothing downloaded ahead (e.g. last page of the chapter) → hide the overlay.
+        if (downloaded <= 0) return null
+        return PreloadStatus(loaded = loaded, loading = loading, max = downloaded)
+    }
+
+    /**
+     * Chapter-wide fractions for the page-slider notch markers: how much of the chapter has
+     * been downloaded (page preload frontier) and how much has been upscaled. Either value is
+     * null when its marker is disabled or not applicable, which hides that notch.
+     */
+    private fun computeNotchFractions(pages: List<ReaderPage>): Pair<Float?, Float?> {
+        val total = pages.size
+        if (total == 0) return null to null
+
+        val downloadFraction = if (readerPreferences.showDownloadNotch().get()) {
+            pages.count { it.status == Page.State.Ready }.toFloat() / total
+        } else {
+            null
+        }
+
+        val mode = readerPreferences.enhancementMode().get()
+        val liveUpscaling = mode != EnhancementMode.NONE && !readerPreferences.enhanceOnDownload().get()
+        val upscaleFraction = if (liveUpscaling && readerPreferences.showUpscaleNotch().get()) {
+            ImageEnhancementCache.init(Injekt.get<Application>())
+            val configHash = currentEnhancementConfigHash()
+            pages.count { target ->
+                val mangaId = target.chapter.chapter.manga_id ?: -1L
+                val chapterId = target.chapter.chapter.id ?: -1L
+                val variant = target.enhancementKeySuffix
+                when {
+                    target.alreadyUpscaled -> true
+                    mangaId == -1L || chapterId == -1L -> false
+                    else ->
+                        ImageEnhancementCache.isCached(mangaId, chapterId, target.index, configHash, variant) ||
+                            ImageEnhancementCache.isSkipped(mangaId, chapterId, target.index, configHash, variant)
+                }
+            }.toFloat() / total
+        } else {
+            null
+        }
+
+        return downloadFraction to upscaleFraction
     }
     // KMK <--
 
@@ -1754,6 +1822,10 @@ class ReaderViewModel @JvmOverloads constructor(
         // KMK -->
         val processingStatus: String? = null,
         val preloadStatus: PreloadStatus? = null,
+        /** Page-slider notch: fraction of the chapter already downloaded (null hides it). */
+        val downloadNotchFraction: Float? = null,
+        /** Page-slider notch: fraction of the chapter already upscaled (null hides it). */
+        val upscaleNotchFraction: Float? = null,
         // KMK <--
     ) {
         val currentChapter: ReaderChapter?
@@ -1770,7 +1842,10 @@ class ReaderViewModel @JvmOverloads constructor(
         val loaded: Int,
         /** Pages currently queued or actively being upscaled. */
         val loading: Int,
-        /** Configured preload window size (pages to keep upscaled after the current page). */
+        /**
+         * Pages ahead of the current one that the page loader has already downloaded — the live
+         * upscaling target. Grows with the page-preload setting as downloads advance.
+         */
         val max: Int,
     )
     // KMK <--

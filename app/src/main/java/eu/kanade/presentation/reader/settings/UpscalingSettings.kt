@@ -26,6 +26,7 @@ import eu.kanade.tachiyomi.util.waifu2x.RemoteUpscaleStrategy
 import eu.kanade.tachiyomi.util.waifu2x.UpscaleModels
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.kmk.KMR
+import tachiyomi.i18n.sy.SYMR
 import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.HeadingItem
 import tachiyomi.presentation.core.components.SettingsChipRow
@@ -113,7 +114,7 @@ internal fun RemoteUpscalerSettings(
 
     extraContent()
 
-    PreloadPercentSetting(preferences)
+    PagePreloadSetting(preferences)
 }
 
 /** Local (on-device NCNN) mode controls: model, denoise, scale, preload, GPU and resolution. */
@@ -133,7 +134,7 @@ internal fun LocalUpscalerSettings(preferences: ReaderPreferences) {
 
     DenoiseLevelSetting(preferences, realCuganModel)
     ScaleFactorSetting(preferences, realCuganModel)
-    PreloadPercentSetting(preferences)
+    PagePreloadSetting(preferences)
     PerformanceModeSetting(preferences)
     TargetResolutionSetting(preferences)
 }
@@ -205,18 +206,24 @@ private fun ScaleFactorSetting(preferences: ReaderPreferences, model: Int) {
     }
 }
 
+/**
+ * Quick access to the reader's page-preload amount (the same preference as
+ * Settings → Reader → Page downloading). Upscaling has no window of its own — it follows
+ * the download frontier — so this is the setting that decides how far ahead it runs.
+ */
 @Composable
-internal fun PreloadPercentSetting(preferences: ReaderPreferences) {
-    val preloadPercent by preferences.realCuganPreloadPercent().collectAsState()
-    SettingsChipRow(KMR.strings.reader_preload_percent) {
-        listOf(25, 50, 100).forEach { percent ->
+internal fun PagePreloadSetting(preferences: ReaderPreferences) {
+    val preloadSize by preferences.preloadSize().collectAsState()
+    SettingsChipRow(SYMR.strings.reader_preload_amount) {
+        listOf(4, 6, 8, 10, 12, 14, 16, 20).forEach { amount ->
             FilterChip(
-                selected = preloadPercent == percent,
-                onClick = { preferences.realCuganPreloadPercent().set(percent) },
-                label = { Text(stringResource(KMR.strings.reader_preload_percent_value, percent)) },
+                selected = preloadSize == amount,
+                onClick = { preferences.preloadSize().set(amount) },
+                label = { Text("$amount") },
             )
         }
     }
+    SettingsInfoText(KMR.strings.upscaling_follows_page_preload)
 }
 
 @Composable

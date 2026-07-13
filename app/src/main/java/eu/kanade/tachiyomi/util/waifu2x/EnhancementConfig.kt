@@ -30,6 +30,26 @@ object RemoteUpscaleStrategy {
     const val BATCH_URL = 3
 }
 
+/**
+ * Reader status-overlay variants, persisted in `ReaderPreferences.enhancementOverlayType()`.
+ * -1 means "pending migration from the legacy detail-level pref".
+ */
+object EnhancementOverlayType {
+    const val OFF = 0
+
+    /** Type A — thin progress bar only. */
+    const val BAR = 1
+
+    /** Type B — progress bar plus a compact "ready/total" counter. */
+    const val COUNTER = 2
+
+    /** Type C — panel with a readable sentence, bar and live processing status. */
+    const val DETAILED = 3
+
+    /** Type D — circular percentage ring. */
+    const val RING = 4
+}
+
 /** Local NCNN model catalog; the index is the `ReaderPreferences.realCuganModel()` value. */
 object UpscaleModels {
     const val REAL_CUGAN_SE = 0

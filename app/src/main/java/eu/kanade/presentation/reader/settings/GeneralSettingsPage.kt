@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import eu.kanade.tachiyomi.util.system.hasDisplayCutout
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.kmk.KMR
 import tachiyomi.i18n.sy.SYMR
 import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.SettingsChipRow
@@ -80,6 +81,13 @@ internal fun GeneralPage(screenModel: ReaderSettingsScreenModel) {
         )
     }
     // SY <--
+
+    // KMK --> Page-slider notch showing how far ahead pages are downloaded
+    CheckboxItem(
+        label = stringResource(KMR.strings.pref_show_download_notch),
+        pref = screenModel.preferences.showDownloadNotch(),
+    )
+    // KMK <--
 
     CheckboxItem(
         label = stringResource(MR.strings.pref_fullscreen),
