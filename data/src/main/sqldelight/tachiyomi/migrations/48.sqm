@@ -1,0 +1,8 @@
+import kotlinx.serialization.json.JsonObject;
+
+-- Upstream amended 46.sqm in place (memo columns + extension_list_url) after this fork
+-- had already shipped the old 46 in versionCode 79, so updating devices never get those
+-- columns. Re-apply them here for databases coming from v79.
+ALTER TABLE mangas ADD COLUMN memo BLOB AS JsonObject NOT NULL DEFAULT (CAST('{}' AS BLOB));
+ALTER TABLE chapters ADD COLUMN memo BLOB AS JsonObject NOT NULL DEFAULT (CAST('{}' AS BLOB));
+ALTER TABLE extension_store ADD COLUMN extension_list_url TEXT;
