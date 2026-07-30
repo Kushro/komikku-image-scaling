@@ -56,5 +56,6 @@ val migrations: List<Migration>
         DisabledRepoMigration(),
         SyncPrefKeyMigration(),
         LibraryGroupingLayersMigration(),
+        ChapterUrlHashMigration(),
         // KMK <--
     )

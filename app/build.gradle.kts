@@ -43,8 +43,8 @@ android {
     defaultConfig {
         applicationId = "app.komikkup"
 
-        versionCode = 80
-        versionName = "1.14.0"
+        versionCode = 81
+        versionName = "1.14.1"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
